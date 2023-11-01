@@ -1,0 +1,59 @@
+# Create ECR (Optional once public)
+# Need to build and push the image
+
+# Create Lambda (15 min timeout)
+
+# Add Lambda permissions
+
+# Allow invoking from Step Functions
+Parameters:
+  ECRPublicRepoLocation:
+    Description: "Location of the image to deploy"
+    Type: "String"
+    MinLength: 1 # pseudo required
+    # MaxLength: 255,
+    # AllowedPattern: "^[a-zA-Z][-a-zA-Z0-9]*$",
+    Default: "s1k9c2t7/mast-lambda:latest"
+Resources:
+  # MyECRPullThroughCacheRule:
+  #   Type: 'AWS::ECR::PullThroughCacheRule'
+  #   Properties:
+  #     EcrRepositoryPrefix: 'ecr-public'
+  #     UpstreamRegistryUrl: 'public.ecr.aws'
+  # This should actually be "assume role" and the workflow assumes a role
+  topsailRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - "sts:AssumeRole"
+      Description: "String"
+      ManagedPolicyArns:
+        - "arn:aws:iam::aws:policy/AdministratorAccess"
+        - "arn:aws:iam::aws:policy/AWSXRayDaemonWriteAccess"
+      RoleName: "default-topsail-role"
+      Tags:
+        - Key: "used_by"
+          Value: "topsail"
+    # DependsOn: "defaultTaskExecutionRolePolicy"
+  topsailLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      Code:
+        "ImageUri": !Sub
+          - "${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/ecr-public/${ECRPublicRepoLocation}" # !Ref ImageUri
+          - ECRPublicRepoLocation: !Ref ECRPublicRepoLocation
+      PackageType: "Image"
+      FunctionName: topsail-lambda
+      Role: !GetAtt topsailRole.Arn
+      Tags:
+        - Key: "used_by"
+          Value: "topsail"
+      Timeout: 900
+    DependsOn: ["topsailRole"]

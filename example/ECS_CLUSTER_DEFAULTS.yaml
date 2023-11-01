@@ -1,0 +1,19 @@
+# Parameters:
+# ECRPublicRepoLocation:
+#   Description: "Location of the image to deploy"
+#   Type: "String"
+#   MinLength: 1 # pseudo required
+#   # MaxLength: 255,
+#   # AllowedPattern: "^[a-zA-Z][-a-zA-Z0-9]*$",
+#   Default: "s1k9c2t7/mast-lambda:latest"
+Resources:
+  ECSCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: "default"
+
+Outputs:
+  ECSClusterName:
+    Description: A reference to the created VPC
+    Value: !Ref ECSCluster
+    Export: { "Name": { "Fn::Sub": "DefaultECSClusterName" } }

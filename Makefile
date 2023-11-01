@@ -26,3 +26,11 @@ local-quick:
 .PHONY: local-quick-lambda
 local-quick-lambda:
 	$(DOCKER) build --pull --build-arg BUILD_OPTIONS='--notest' -f Dockerfile.lambda -t topsail-lambda .
+
+.PHONY: local-quick-build
+local-quick-build:
+	docker build --build-arg IMAGE_BASE='mast-lambda' --build-arg BUILD_OPTIONS='--notest' -f Dockerfile.lambda -t topsail-lambda .
+
+.PHONY: local-quick-build-decider
+local-quick-build-decider:
+	docker build --build-arg BUILD_OPTIONS='--notest' -f Dockerfile.decider-lambda -t topsail-decider-lambda .

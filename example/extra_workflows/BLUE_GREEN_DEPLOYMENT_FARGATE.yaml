@@ -1,0 +1,116 @@
+# This is just the ecs blue/green deploy. relies on min and max health percentages being set correctly
+# only supports fargate atm
+# Create a "deploy new service" workflow
+AWSTemplateFormatVersion: 2010-09-09
+Transform: 'AWS::LanguageExtensions'
+Parameters:
+  WorkflowResources:
+    Description: "Shared permissions across workflow resources"
+    Type: "String"
+    MinLength: 1 # pseudo required
+    # MaxLength: 255,
+    # AllowedPattern: "^[a-zA-Z][-a-zA-Z0-9]*$",
+    Default: "WorkflowResources"
+Resources:
+  deployApplicationServiceWorkflow:
+    Type: AWS::StepFunctions::StateMachine
+    Properties: 
+      DefinitionString: 
+        Fn::ToJsonString: {
+            "Comment": "An AWS Step Functions state machine that performs a blue/green deploy for an ECS Fargate Service.",
+            "StartAt": "Validate Cloud Spec",
+            "States": {
+                "Validate Cloud Spec": {
+                    "Type": "Task",
+                    "Resource": !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:mast-lambda",
+                    "Parameters": {
+                        "step_name": "contexts_validate_cloud_spec",
+                        "cloud_spec_json.$": "$.cloud_spec_json",
+                        "context": [
+                            "prestaging",
+                            "standby"
+                        ],
+                        "output_file": "/tmp/deployment.json"
+                    },
+                    "ResultPath": "$.standby_cloud_spec",
+                    "Next": "Create ECS Task Definition"
+                },
+                "Create ECS Task Definition": {
+                    "Type": "Task",
+                    "Resource": !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:mast-lambda",
+                    "Parameters": {
+                        "step_name": "lambda_create_ecs_task_definition",
+                        "cloud_spec_json.$": "$.standby_cloud_spec.cloud_spec_json",
+                        "environment.$": "$.environment",
+                        "output_file": "/tmp/deployment.json",
+                        "cloud_spec_url": "https://raw.githubusercontent.com/yahooo"
+                    },
+                    "ResultPath": "$.ecs_task_definition",
+                    "Next": "Create ELB Target Groups"
+                },
+                "Create ELB Target Groups": {
+                    "Type": "Task",
+                    "Resource": !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:mast-lambda",
+                    "Parameters": {
+                        "step_name": "create_elb_target_groups",
+                        "cloud_spec_json.$": "$.standby_cloud_spec.cloud_spec_json",
+                        "environment.$": "$.environment"
+                    },
+                    "ResultPath": "$.elb_target_groups",
+                    "Next": "Update ELB Listener Rules"
+                },
+                "Update ELB Listener Rules": {
+                    "Type": "Task",
+                    "Resource": !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:mast-lambda",
+                    "Parameters": {
+                        "step_name": "update_elb_listener_rules",
+                        "cloud_spec_json.$": "$.standby_cloud_spec.cloud_spec_json",
+                        "environment.$": "$.environment"
+                    },
+                    "ResultPath": "$.elb_listener_rules",
+                    "Next": "Create ECS Service"
+                },
+                "Create ECS Service": {
+                    "Type": "Task",
+                    "Resource": !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:mast-lambda",
+                    "Parameters": {
+                        "step_name": "lambda_create_ecs_service",
+                        "cloud_spec_json.$": "$.standby_cloud_spec.cloud_spec_json",
+                        "environment.$": "$.environment",
+                        "poll_interval": 10,
+                        "task_definition_arn.$": "$.ecs_task_definition.task_definition_arn",
+                        "output_file": "/tmp/deployment.json"
+                    },
+                    "ResultPath": "$.ecs_service",
+                    "Next": "Actualize active Cloud Spec"
+                },
+                "Actualize active Cloud Spec": {
+                    "Type": "Task",
+                    "Resource": !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:mast-lambda",
+                    "Parameters": {
+                        "step_name": "contexts_validate_cloud_spec",
+                        "cloud_spec_json.$": "$.cloud_spec_json",
+                        "context": [
+                            "prestaging",
+                            "active"
+                        ],
+                        "output_file": "/tmp/deployment.json"
+                    },
+                    "ResultPath": "$.active_cloud_spec",
+                    "Next": "Update ELB Listener Rules to Active"
+                },
+                "Update ELB Listener Rules to Active": {
+                    "Type": "Task",
+                    "Resource": !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:mast-lambda",
+                    "Parameters": {
+                        "step_name": "update_elb_listener_rules",
+                        "cloud_spec_json.$": "$.active_cloud_spec.cloud_spec_json",
+                        "environment.$": "$.environment"
+                    },
+                    "ResultPath": "$.update_elb_listener_rules",
+                    "End": true
+                }
+            }
+        }
+      RoleArn: { "Fn::ImportValue": { "Fn::Sub": "${WorkflowResources}-RoleArn" } }
+      StateMachineName: BlueGreenDeployService

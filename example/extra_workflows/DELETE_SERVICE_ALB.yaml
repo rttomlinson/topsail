@@ -1,0 +1,90 @@
+# Create a "delete service" workflow
+AWSTemplateFormatVersion: 2010-09-09
+Transform: 'AWS::LanguageExtensions'
+Parameters:
+  WorkflowResources:
+    Description: "Shared permissions across workflow resources"
+    Type: "String"
+    MinLength: 1 # pseudo required
+    # MaxLength: 255,
+    # AllowedPattern: "^[a-zA-Z][-a-zA-Z0-9]*$",
+    Default: "WorkflowResources"
+  WorkflowName:
+    Description: "Shared permissions across workflow resources"
+    Type: "String"
+    MinLength: 1 # pseudo required
+    # MaxLength: 255,
+    # AllowedPattern: "^[a-zA-Z][-a-zA-Z0-9]*$",
+    Default: "DeleteServiceALB"
+Resources:
+  deployApplicationServiceWorkflow:
+    Type: AWS::StepFunctions::StateMachine
+    Properties: 
+      DefinitionString: 
+        Fn::ToJsonString: {
+          "Comment": "A simple AWS Step Functions state machine that automates a call center support session.",
+          "StartAt": "Validate Cloud Spec",
+          "States": {
+              "Validate Cloud Spec": {
+                  "Type": "Task",
+                  "Resource": !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:mast-lambda",
+                  "Parameters": {
+                      "step_name": "validate_cloud_spec",
+                      "cloud_spec_json.$": "$.cloud_spec_json",
+                      "environment.$": "$.environment",
+                      "global_state.$": "$.global_state"
+                  },
+                  "Next": "Scale ECS Service to 0"
+              },
+              "Scale ECS Service to 0": {
+                  "Type": "Task",
+                  "Resource": !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:mast-lambda",
+                  "Parameters": {
+                      "step_name": "scale_ecs_service",
+                      "cloud_spec_json.$": "$.cloud_spec_json",
+                      "environment.$": "$.environment",
+                      "poll_interval": 10,
+                      "desired_count": 0,
+                      "global_state.$": "$.global_state"
+                  },
+                  "Next": "Delete ECS Service"
+              },
+              "Delete ECS Service": {
+                  "Type": "Task",
+                  "Resource": !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:mast-lambda",
+                  "Parameters": {
+                      "step_name": "delete_ecs_service",
+                      "cloud_spec_json.$": "$.cloud_spec_json",
+                      "environment.$": "$.environment",
+                      "poll_interval": 10,
+                      "global_state.$": "$.global_state"
+                  },
+                  "Next": "Delete ELB Listener Rules"
+              },
+              "Delete ELB Listener Rules": {
+                  "Type": "Task",
+                  "Resource": !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:mast-lambda",
+                  "Parameters": {
+                      "step_name": "delete_elb_listener_rules",
+                      "cloud_spec_json.$": "$.cloud_spec_json",
+                      "environment.$": "$.environment",
+                      "global_state.$": "$.global_state"
+                  },
+                  "Next": "Delete ELB Target Groups"
+              },
+              "Delete ELB Target Groups": {
+                  "Type": "Task",
+                  "Resource": !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:mast-lambda",
+                  "Parameters": {
+                      "step_name": "delete_elb_target_groups",
+                      "cloud_spec_json.$": "$.cloud_spec_json",
+                      "environment.$": "$.environment",
+                      "global_state.$": "$.global_state"
+                  },
+                  "End": true
+              }
+          }
+      }
+      RoleArn: { "Fn::ImportValue": { "Fn::Sub": "${WorkflowResources}-RoleArn" } }
+      StateMachineName: !Ref WorkflowName
+

@@ -1,0 +1,22 @@
+Parameters:
+  DomainName:
+    Description: "Domain name"
+    Type: "String"
+    MinLength: 1 # pseudo required
+    # MaxLength: 255,
+    # AllowedPattern: "^[a-zA-Z][-a-zA-Z0-9]*$",
+    Default: "renzotomlinson.com"
+
+Resources:
+  DefaultWildcardCertificate:
+    Type: AWS::CertificateManager::Certificate
+    Properties: 
+      DomainName: "*.renzotomlinson.com"
+      SubjectAlternativeNames: 
+        - "renzotomlinson.com"
+      ValidationMethod: DNS
+
+Outputs:
+  DefaultWildcardCertificateArn:
+    Description: Default certificate arn
+    Value: !Ref DefaultWildcardCertificate

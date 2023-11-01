@@ -1,4 +1,6 @@
-FROM shogo82148/p5-aws-lambda:base-5.38.al2
+ARG IMAGE_BASE=shogo82148/p5-aws-lambda:base-5.38.al2
+
+FROM ${IMAGE_BASE}
 # or if you want to use ECR Public.
 # FROM public.ecr.aws/shogo82148/p5-aws-lambda:base-5.38.al2
 
@@ -11,7 +13,7 @@ RUN yum -y install yq jq curl gcc make perl libc-dev perl-dev unzip \
 RUN yum -y remove awscli
 RUN curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
 RUN unzip awscliv2.zip
-RUN ./aws/install
+RUN ./aws/install --update
 
 # List all dependencies here, including testing. Do not add them to Makefile.PL
 RUN cpanm -v --no-wget Test::More Test::Output Digest::SHA Pod::Usage \
@@ -52,15 +54,18 @@ ENV AWS_CLIWRAPPER_CATCH_ERROR_MAX_DELAY=3
 
 
 
-RUN mkdir -p /tmp/source
-ADD ./ /tmp/source/
-WORKDIR /tmp/source
+# RUN mkdir -p /tmp/source
+# ADD ./ /tmp/source/
+# WORKDIR /tmp/source
 
-ARG BUILD_OPTIONS=''
+# ARG BUILD_OPTIONS=''
 
-RUN cpanm -v --no-wget $BUILD_OPTIONS /tmp/source \
-    && rm -rf /tmp/source /root/.cpanm
+# RUN cpanm -v --no-wget $BUILD_OPTIONS /tmp/source \
+#     && rm -rf /tmp/source /root/.cpanm
 
 # RUN cpanm -v --no-wget Fleut::Mast
 
 WORKDIR /
+
+COPY decider-handler.pl /var/task/handler.pl
+CMD [ "handler.handle" ]

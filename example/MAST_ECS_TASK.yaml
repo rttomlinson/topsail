@@ -1,0 +1,118 @@
+# Create ECR (Optional once public)
+# Need to build and push the image
+
+# Create Lambda (15 min timeout)
+
+# Add Lambda permissions
+
+# Allow invoking from Step Functions
+Parameters:
+  ECRPublicRepoLocation:
+    Description: "Location of the image to deploy"
+    Type: "String"
+    MinLength: 1 # pseudo required
+    # MaxLength: 255,
+    # AllowedPattern: "^[a-zA-Z][-a-zA-Z0-9]*$",
+    Default: "rttomlinson/mast:latest"
+Resources:
+  TaskExecutionRolePolicy:
+    Type: "AWS::IAM::ManagedPolicy"
+    Properties:
+      ManagedPolicyName: "mast-ecs-task-execution-role-policy"
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Action:
+              - "logs:CreateLogGroup"
+            Resource: "*"
+  TaskExecutionRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ecs-tasks.amazonaws.com
+            Action:
+              - "sts:AssumeRole"
+      Description: "String"
+      ManagedPolicyArns:
+        - "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
+        - !Ref TaskExecutionRolePolicy
+      RoleName: "mast-ecs-task-execution-role"
+      Tags:
+        - Key: "used_by"
+          Value: "mast"
+    DependsOn: "TaskExecutionRolePolicy"
+  # defaultTaskRolePolicy:
+  #   Type: "AWS::IAM::ManagedPolicy"
+  #   Properties:
+  #     ManagedPolicyName: "default-task-role-policy"
+  #     PolicyDocument:
+  #       Version: 2012-10-17
+  #       Statement:
+  #         - Effect: Allow
+  #           Action:
+  #             - "s3:GetObject"
+  #           Resource: "*"
+  TaskRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ecs-tasks.amazonaws.com
+            Action:
+              - "sts:AssumeRole"
+      Description: "String"
+      ManagedPolicyArns:
+        - "arn:aws:iam::aws:policy/AdministratorAccess"
+      RoleName: "mast-ecs-task-role"
+      Tags:
+        - Key: "used_by"
+          Value: "mast"
+    # DependsOn: "defaultTaskRolePolicy"
+  MastECSTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      
+      ContainerDefinitions: 
+        - Essential: true
+          
+          Image: !Ref ECRPublicRepoLocation
+          
+          LogConfiguration: 
+            LogDriver: awslogs
+            Options:
+              awslogs-create-group: "true"
+              awslogs-group: example
+              awslogs-region: us-east-1
+              awslogs-stream-prefix: nginx
+          Name: mast-ecs
+        - Essential: true
+          Image: !Ref ECRPublicRepoLocation
+          
+          LogConfiguration: 
+            LogDriver: awslogs
+            Options:
+              awslogs-create-group: "true"
+              awslogs-group: example
+              awslogs-region: us-east-1
+              awslogs-stream-prefix: nginx
+          Name: mast-ecs
+
+      Cpu: 256
+      ExecutionRoleArn: !Ref TaskExecutionRole
+      TaskRoleArn: !Ref TaskRole
+      Family: mast-ecs
+      Memory: 512
+      NetworkMode: awsvpc
+      RequiresCompatibilities: 
+        - FARGATE
+

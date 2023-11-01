@@ -1,0 +1,245 @@
+Parameters:
+  NetworkStackName:
+    Description: "Name of an active CloudFormation stack that contains the networking resources, such as the subnet and security group, that will be used in this stack."
+    Type: "String"
+    MinLength: 1 # pseudo required
+    MaxLength: 255
+    AllowedPattern: "^[a-zA-Z][-a-zA-Z0-9]*$"
+    Default: "DefaultNetworkStack"
+  ServiceApplicationLoadBalancerName:
+    Description: "Name of an active CloudFormation stack that contains the networking resources, such as the subnet and security group, that will be used in this stack."
+    Type: "String"
+    MinLength: 1 # pseudo required
+    MaxLength: 255
+    AllowedPattern: "^[a-zA-Z][-a-zA-Z0-9]*$"
+    Default: "default-application-lb"
+  ServiceApplicationLoadBalancerListenerPort:
+    Description: "Name of an active CloudFormation stack that contains the networking resources, such as the subnet and security group, that will be used in this stack."
+    Type: "Number"
+    # MinLength: 1 # pseudo required
+    # MaxLength: 255
+    # AllowedPattern: "^[a-zA-Z][-a-zA-Z0-9]*$"
+    Default: 8080
+  ServiceApplicationLoadBalancerListenerProtocol:
+    Description: "Name of an active CloudFormation stack that contains the networking resources, such as the subnet and security group, that will be used in this stack."
+    Type: "String"
+    # MinLength: 1 # pseudo required
+    # MaxLength: 255
+    AllowedPattern: "^(HTTP|HTTPS|TCP)"
+    Default: HTTP
+  ServiceApplicationLoadBalancerSecurityGroupName:
+    Description: "Name of an active CloudFormation stack that contains the networking resources, such as the subnet and security group, that will be used in this stack."
+    Type: "String"
+    MinLength: 1 # pseudo required
+    MaxLength: 255
+    AllowedPattern: "^[a-zA-Z][-a-zA-Z0-9]*$"
+    Default: "default-application-lb-sg"
+  ServiceSecurityGroupName:
+    Description: "Name of an active CloudFormation stack that contains the networking resources, such as the subnet and security group, that will be used in this stack."
+    Type: "String"
+    MinLength: 1 # pseudo required
+    MaxLength: 255
+    AllowedPattern: "^[a-zA-Z][-a-zA-Z0-9]*$"
+    Default: "default-service-sg"
+
+  ECSTaskExecutionRoleName:
+    Description: "Name of an active CloudFormation stack that contains the networking resources, such as the subnet and security group, that will be used in this stack."
+    Type: "String"
+    MinLength: 1 # pseudo required
+    MaxLength: 255
+    AllowedPattern: "^[a-zA-Z][-a-zA-Z0-9]*$"
+    Default: "default-task-execution-role"
+  ECSTaskRoleName:
+    Description: "Name of an active CloudFormation stack that contains the networking resources, such as the subnet and security group, that will be used in this stack."
+    Type: "String"
+    MinLength: 1 # pseudo required
+    MaxLength: 255
+    AllowedPattern: "^[a-zA-Z][-a-zA-Z0-9]*$"
+    Default: "default-task-role"
+
+# Maybe "shared" resources is a good use-case for terraform?
+# A reference to existing terraform with a drift validation check
+# Basically we just need to import these values from a shared terraform
+# Or a shared cloudformation for that matter
+# Since we can detect drift in cloudformation also
+
+Resources:
+  defaultTaskExecutionRolePolicy:
+    Type: "AWS::IAM::ManagedPolicy"
+    Properties:
+      ManagedPolicyName: "default-task-execution-role-policy"
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Action:
+              - "logs:CreateLogGroup"
+            Resource: "*"
+  taskExecutionRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ecs-tasks.amazonaws.com
+            Action:
+              - "sts:AssumeRole"
+      Description: "String"
+      ManagedPolicyArns:
+        - "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
+        - !Ref defaultTaskExecutionRolePolicy
+      RoleName: !Ref ECSTaskExecutionRoleName
+      Tags:
+        - Key: "used_by"
+          Value: "mast"
+    DependsOn: "defaultTaskExecutionRolePolicy"
+
+  # defaultTaskRolePolicy:
+  #   Type: "AWS::IAM::ManagedPolicy"
+  #   Properties:
+  #     ManagedPolicyName: "default-task-role-policy"
+  #     PolicyDocument:
+  #       Version: 2012-10-17
+  #       Statement:
+  #         - Effect: Allow
+  #           Action:
+  #             - "s3:GetObject"
+  #           Resource: "*"
+  taskRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ecs-tasks.amazonaws.com
+            Action:
+              - "sts:AssumeRole"
+      Description: "String"
+      # ManagedPolicyArns:
+      #   - !Ref defaultTaskRolePolicy
+      RoleName: !Ref ECSTaskRoleName
+      Tags:
+        - Key: "used_by"
+          Value: "mast"
+    # DependsOn: "defaultTaskRolePolicy"
+
+  defaultApplicationLoadBalancerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: "String"
+      GroupName: !Ref ServiceApplicationLoadBalancerSecurityGroup
+      # SecurityGroupEgress:
+      #   - Egress
+      SecurityGroupIngress:
+        - CidrIp: "0.0.0.0/0"
+          Description: "String"
+          FromPort: 0
+          IpProtocol: "tcp"
+          ToPort: 65534
+      Tags:
+        - Key: "used_by"
+          Value: "mast"
+      VpcId: { "Fn::ImportValue": { "Fn::Sub": "${NetworkStackName}-VPCId" } }
+  defaultApplicationLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      IpAddressType: "ipv4"
+      # LoadBalancerAttributes:
+      #   - LoadBalancerAttribute
+      Name: !Ref ServiceApplicationLoadBalancerName
+      Scheme: "internet-facing"
+      SecurityGroups:
+        - !Ref defaultApplicationLoadBalancerSecurityGroupName
+      # SubnetMappings:
+      #   - SubnetMapping
+      Subnets:
+        {
+          "Fn::Split":
+            [
+              ",",
+              {
+                "Fn::ImportValue":
+                  { "Fn::Sub": "${NetworkStackName}-PublicSubnets" },
+              },
+            ],
+        }
+      Tags:
+        - Key: "used_by"
+          Value: "mast"
+      Type: "application"
+    DependsOn: "defaultApplicationLoadBalancerSecurityGroup"
+
+  defaultApplicationLoadBalancerListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      # AlpnPolicy:
+      #   - String
+      # Certificates:
+      #   - Certificate
+      DefaultActions:
+        - Type: fixed-response
+          FixedResponseConfig:
+            ContentType: "text/plain"
+            MessageBody: "naughty naughty"
+            StatusCode: "503"
+      LoadBalancerArn: !Ref defaultApplicationLoadBalancer
+      Port: !Ref ServiceApplicationLoadBalancerListenerPort
+      Protocol: !Ref ServiceApplicationLoadBalancerListenerProtocol
+      # SslPolicy: String
+
+  defaultServiceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: "String"
+      GroupName: !Ref ServiceSecurityGroupName
+      # SecurityGroupEgress:
+      #   - Egress
+      SecurityGroupIngress:
+        - SourceSecurityGroupId: !Ref defaultApplicationLoadBalancerSecurityGroup
+          Description: "String"
+          FromPort: 0
+          IpProtocol: "tcp"
+          ToPort: 65534
+      Tags:
+        - Key: "used_by"
+          Value: "mast"
+      VpcId: { "Fn::ImportValue": { "Fn::Sub": "${NetworkStackName}-VPCId" } }
+
+Outputs:
+  LoadBalancerDomainName:
+    Description: A reference to the created VPC
+    Value: !GetAtt defaultApplicationLoadBalancer.DNSName
+    Export:
+      {
+        "Name":
+          { "Fn::Sub": "${AWS::StackName}-defaultApplicationLoadBalancer" },
+      }
+  LoadBalancerListenerId:
+    Description: A reference to the created VPC
+    Value: !Ref defaultApplicationLoadBalancerListener
+    Export:
+      {
+        "Name":
+          {
+            "Fn::Sub": "${AWS::StackName}-defaultApplicationLoadBalancerListener",
+          },
+      }
+  TaskExecutionRoleArn:
+    Description: A reference to the created VPC
+    Value: !Ref taskExecutionRole
+    Export: { "Name": { "Fn::Sub": "${AWS::StackName}-taskExecutionRole" } }
+  TaskRoleArn:
+    Description: A reference to the created VPC
+    Value: !Ref taskRole
+    Export: { "Name": { "Fn::Sub": "${AWS::StackName}-taskRole" } }
+  ServiceSecurityGroupId:
+    Description: A reference to the created VPC
+    Value: !Ref defaultServiceSecurityGroup
+    Export:
+      { "Name": { "Fn::Sub": "${AWS::StackName}-defaultServiceSecurityGroup" } }

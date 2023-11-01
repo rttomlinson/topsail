@@ -1,0 +1,98 @@
+{
+    "StartAt": "Decide",
+    "States": {
+        "Decide": {
+            "Type": "Task",
+            "Resource": "arn:aws:lambda:::function:topsail-decider-lambda",
+            "Parameters": {
+                "input.$": "$",
+                "step_function_execution_id.$": "$$.Execution.Id"
+            },
+            "Next": "Choose action"
+        },
+        "Choose action": {
+            "Type": "Choice",
+            "Choices": [
+                {
+                    "Variable": "$.execution_state.step_type",
+                    "StringEquals": "Complete",
+                    "Next": "Process finished"
+                },
+                {
+                    "Variable": "$.execution_state.step_type",
+                    "StringEquals": "Task",
+                    "Next": "Execute"
+                },
+                {
+                    "Variable": "$.execution_state.step_type",
+                    "StringEquals": "Manual_Approval",
+                    "Next": "Lambda Callback"
+                },
+                {
+                    "Variable": "$.execution_state.step_type",
+                    "StringEquals": "MANUAL_APPROVAL_PLACEHOLDER",
+                    "Next": "ManualApproval"
+                }
+            ]
+        },
+        "Execute": {
+            "Type": "Task",
+            "Resource": "arn:aws:lambda:::function:topsail-lambda",
+            "Parameters": {
+                "input.$": "$",
+                "step_function_execution_id.$": "$$.Execution.Id"
+            },
+            "Next": "Decide"
+        },
+        "ManualApproval": {
+            "Type": "Task",
+            "Resource": "arn:${AWS::Partition}:states:::lambda:invoke.waitForTaskToken",
+            "Parameters": {
+                "FunctionName": "${LambdaHumanApprovalSendEmailFunction.Arn}",
+                "Payload": {
+                    "input.$": "$",
+                    "ExecutionContext.$": "$$",
+                    "APIGatewayEndpoint": "https://${ExecutionApi}.execute-api.${AWS::Region}.amazonaws.com/states"
+                }
+            }
+        },
+        "Lambda Callback": {
+            "Type": "Task",
+            "Resource": "arn:aws:states:::lambda:invoke.waitForTaskToken",
+            "Parameters": {
+                "FunctionName": "${LambdaHumanApprovalSendEmailFunction.Arn}",
+                "Payload": {
+                    "ExecutionContext.$": "$$",
+                    "APIGatewayEndpoint": "https://${ExecutionApi}.execute-api.${AWS::Region}.amazonaws.com/states"
+                }
+            },
+            "Next": "ManualApprovalChoiceState"
+        },
+        "ManualApprovalChoiceState": {
+            "Type": "Choice",
+            "Choices": [
+                {
+                    "Variable": "$.Status",
+                    "StringEquals": "Approved! Task approved by ${Email}",
+                    "Next": "ApprovedPassState"
+                },
+                {
+                    "Variable": "$.Status",
+                    "StringEquals": "Rejected! Task rejected by ${Email}",
+                    "Next": "RejectedPassState"
+                }
+            ]
+        },
+        "ApprovedPassState": {
+            "Type": "Pass",
+            "End": true
+        },
+        "RejectedPassState": {
+            "Type": "Pass",
+            "End": true
+        },
+        "Process finished": {
+            "Type": "Succeed"
+        }
+    }
+}

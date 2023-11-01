@@ -1,0 +1,68 @@
+Parameters:
+  PolicyName:
+    Description: "policy name"
+    Type: "String"
+    MinLength: 1 # pseudo required
+    # MaxLength: 255,
+    # AllowedPattern: "^[a-zA-Z][-a-zA-Z0-9]*$",
+    Default: "default-step-function-lambda-role-policy"
+  RoleName:
+    Description: "role name"
+    Type: "String"
+    MinLength: 1 # pseudo required
+    # MaxLength: 255,
+    # AllowedPattern: "^[a-zA-Z][-a-zA-Z0-9]*$",
+    Default: "default-step-function-lambda-role"
+Resources:
+  defaultRolePolicy:
+    Type: "AWS::IAM::ManagedPolicy"
+    Properties:
+      ManagedPolicyName: !Ref PolicyName
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Action:
+              - xray:PutTraceSegments
+                xray:PutTelemetryRecords
+                xray:GetSamplingRules
+                xray:GetSamplingTargets
+                # "logs:CreateLogStream"
+                # "logs:CreateLogGroup"
+                # "logs:PutLogEvents"
+                # "logs:CreateLogDelivery"
+                # "logs:GetLogDelivery"
+                # "logs:UpdateLogDelivery"
+                # "logs:DeleteLogDelivery"
+                # "logs:ListLogDeliveries"
+                # "logs:PutResourcePolicy"
+                # "logs:DescribeResourcePolicies"
+                # "logs:DescribeLogGroups"
+            Resource: "*"
+  defaultRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - states.amazonaws.com
+            Action:
+              - "sts:AssumeRole"
+      Description: "Default role used to invoke Lambdas from Step Function"
+      ManagedPolicyArns:
+        - "arn:aws:iam::aws:policy/service-role/AWSLambdaRole"
+        - !Ref defaultRolePolicy
+      RoleName: !Ref RoleName
+      Tags:
+        - Key: "used_by"
+          Value: "mast"
+    DependsOn: "defaultRolePolicy"
+
+Outputs:
+  RoleArn:
+    Description: ARN of the role used by workflows
+    Value: !GetAtt defaultRole.Arn
+    Export: { "Name": { "Fn::Sub": "${AWS::StackName}-RoleArn" } }

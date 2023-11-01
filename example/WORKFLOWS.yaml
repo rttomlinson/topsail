@@ -1,0 +1,35 @@
+Parameters:
+  TemplateBucketName:
+    Description: "Bucket name where the templates are uploaded"
+    Type: "String"
+    MinLength: 1 # pseudo required
+    MaxLength: 255
+    AllowedPattern: "^[a-zA-Z][-a-zA-Z0-9]*$"
+  Email:
+    Type: String
+    AllowedPattern: "^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\\.[a-zA-Z0-9-.]+$"
+    ConstraintDescription: Must be a valid email address.
+Resources:
+  SharedWorkflowResources:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Sub https://s3.amazonaws.com/${TemplateBucketName}/WORKFLOW_RESOURCES.yaml
+      TimeoutInMinutes: "60"
+      Parameters:
+        PolicyName: "default-step-function-lambda-role-policy"
+        RoleName: "default-step-function-lambda-role"
+  WorkflowExecutor:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Sub https://s3.amazonaws.com/${TemplateBucketName}/EXECUTE_WORKFLOW.yaml
+      TimeoutInMinutes: "60"
+      Parameters:
+        WorkflowRoleArn: !GetAtt SharedWorkflowResources.Outputs.RoleArn
+  WorkflowExecutorManual:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Sub https://s3.amazonaws.com/${TemplateBucketName}/EXECUTE_WORKFLOW_WITH_MANUAL.yaml
+      TimeoutInMinutes: "60"
+      Parameters:
+        WorkflowRoleArn: !GetAtt SharedWorkflowResources.Outputs.RoleArn
+        Email: !Ref Email

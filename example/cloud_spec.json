@@ -1,0 +1,66 @@
+{
+    "Comment": "A simple AWS Step Functions state machine that automates a call center support session.",
+    "StartAt": "Validate Cloud Spec",
+    "States": {
+        "Validate Cloud Spec": {
+            "Type": "Task",
+            "Resource": !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:mast-lambda",
+            "Parameters": {
+                "step_name": "contexts_validate_cloud_spec",
+                "cloud_spec_json.$": "$.cloud_spec_json",
+                "context": [
+                    "prestaging",
+                    "standby"
+                ],
+                "output_file": "/tmp/deployment.json"
+            },
+            "ResultPath": "$.standby_cloud_spec",
+            "Next": "Create ECS Task Definition"
+        },
+        "Create ECS Task Definition": {
+            "Type": "Task",
+            "Resource": !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:mast-lambda",
+            "Parameters": {
+                "step_name": "contexts_lambda_create_ecs_task_definition",
+                "cloud_spec_json.$": "$.standby_cloud_spec.cloud_spec_json",
+                "output_file": "/tmp/deployment.json",
+                "cloud_spec_url": "https://raw.githubusercontent.com/yahooo"
+            },
+            "ResultPath": "$.ecs_task_definition",
+            "Next": "Create ELB Target Groups"
+        },
+        "Create ELB Target Groups": {
+            "Type": "Task",
+            "Resource": !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:mast-lambda",
+            "Parameters": {
+                "step_name": "contexts_create_elb_target_groups",
+                "cloud_spec_json.$": "$.standby_cloud_spec.cloud_spec_json"
+            },
+            "ResultPath": "$.elb_target_groups",
+            "Next": "Update ELB Listener Rules"
+        },
+        "Update ELB Listener Rules": {
+            "Type": "Task",
+            "Resource": !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:mast-lambda",
+            "Parameters": {
+                "step_name": "contexts_update_elb_listener_rules",
+                "cloud_spec_json.$": "$.standby_cloud_spec.cloud_spec_json"
+            },
+            "ResultPath": "$.elb_listener_rules",
+            "Next": "Create ECS Service"
+        },
+        "Create ECS Service": {
+            "Type": "Task",
+            "Resource": !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:mast-lambda",
+            "Parameters": {
+                "step_name": "contexts_lambda_create_ecs_service",
+                "cloud_spec_json.$": "$.standby_cloud_spec.cloud_spec_json",
+                "poll_interval": 10,
+                "task_definition_arn.$": "$.ecs_task_definition.task_definition_arn",
+                "output_file": "/tmp/deployment.json"
+            },
+            "ResultPath": "$.ecs_service",
+            "End": true
+        }
+    }
+}

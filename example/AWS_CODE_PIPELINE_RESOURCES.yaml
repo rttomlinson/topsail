@@ -1,0 +1,372 @@
+# Create ECR (Optional once public)
+# Need to build and push the image
+
+# Create Lambda (15 min timeout)
+
+# Add Lambda permissions
+
+# Allow invoking from Step Functions
+# Parameters:
+# ECRPublicRepoLocation:
+#   Description: "Location of the image to deploy"
+#   Type: "String"
+#   MinLength: 1 # pseudo required
+#   # MaxLength: 255,
+#   # AllowedPattern: "^[a-zA-Z][-a-zA-Z0-9]*$",
+#   Default: "s1k9c2t7/topsail-lambda:latest"
+# MyECRPullThroughCacheRule:
+#   Type: 'AWS::ECR::PullThroughCacheRule'
+#   Properties:
+#     EcrRepositoryPrefix: 'ecr-public'
+#     UpstreamRegistryUrl: 'public.ecr.aws'
+# This should actually be "assume role" and the workflow assumes a role
+
+# DependsOn: "defaultTaskExecutionRolePolicy"
+# mastLambda:
+#   Type: AWS::Lambda::Function
+#   Properties:
+#     Code:
+#       "ImageUri": !Sub
+#         - "${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/ecr-public/${ECRPublicRepoLocation}" # !Ref ImageUri
+#         - ECRPublicRepoLocation: !Ref ECRPublicRepoLocation
+#     PackageType: "Image"
+#     FunctionName: mast-lambda
+#     Role: !GetAtt mastRole.Arn
+#     Tags:
+#       - Key: "used_by"
+#         Value: "mast"
+#     Timeout: 900
+#   DependsOn: ["mastRole"]
+
+# bootstrapping an AWS account
+Parameters:
+  TemplateBucketName:
+    Description: "Bucket name where the templates are uploaded"
+    Type: "String"
+    MinLength: 1 # pseudo required
+    MaxLength: 255
+    AllowedPattern: "^[a-zA-Z][-a-zA-Z0-9]*$"
+  EnvironmentName:
+    Description: "Used to name the VPC that is created"
+    Type: "String"
+    MinLength: 1 # pseudo required
+    MaxLength: 255
+    AllowedPattern: "^[a-zA-Z][-a-zA-Z0-9]*$"
+    Default: "dev"
+  NetworkStackName:
+    Description: "Name of an active CloudFormation stack that contains the networking resources, such as the subnet and security group, that will be used in this stack."
+    Type: "String"
+    MinLength: 1 # pseudo required
+    MaxLength: 255
+    AllowedPattern: "^[a-zA-Z][-a-zA-Z0-9]*$"
+    Default: "DefaultNetworkStack"
+  DefaultTaskExecutionRolePolicyName:
+    Description: "default task execution role policy name."
+    Type: "String"
+    MinLength: 1 # pseudo required
+    MaxLength: 255
+    AllowedPattern: "^[a-zA-Z][-a-zA-Z0-9]*$"
+    Default: "default-task-execution-role-policy"
+  DefaultTaskExecutionRoleName:
+    Description: "default task execution role name."
+    Type: "String"
+    MinLength: 1 # pseudo required
+    MaxLength: 255
+    AllowedPattern: "^[a-zA-Z][-a-zA-Z0-9]*$"
+    Default: "default-task-execution-role"
+  DefaultTaskRoleName:
+    Description: "default task role name."
+    Type: "String"
+    MinLength: 1 # pseudo required
+    MaxLength: 255
+    AllowedPattern: "^[a-zA-Z][-a-zA-Z0-9]*$"
+    Default: "default-task-role"
+  DefaultApplicationLoadBalancerSecurityGroupName:
+    Description: "default name for application load balancer security group."
+    Type: "String"
+    MinLength: 1 # pseudo required
+    MaxLength: 255
+    AllowedPattern: "^[a-zA-Z][-a-zA-Z0-9]*$"
+    Default: "default-application-lb-sg"
+  DefaultApplicationLoadBalancerName:
+    Description: "default name for application load balancer security group."
+    Type: "String"
+    MinLength: 1 # pseudo required
+    MaxLength: 255
+    AllowedPattern: "^[a-zA-Z][-a-zA-Z0-9]*$"
+    Default: "default-application-lb"
+  DefaultServiceSecurityGroupName:
+    Description: "default name for service security group."
+    Type: "String"
+    MinLength: 1 # pseudo required
+    MaxLength: 255
+    AllowedPattern: "^[a-zA-Z][-a-zA-Z0-9]*$"
+    Default: "default-service-sg"
+
+Resources:
+  SampleExpressJSImage:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: sample-express-js
+  targetGroup1:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: "target-group-1"
+      Port: 80
+      Protocol: "HTTP"
+      TargetType: "ip"
+      VpcId: !GetAtt VPC.Outputs.VPC
+  targetGroup2:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: "target-group-2"
+      Port: 80
+      Protocol: "HTTP"
+      TargetType: "ip"
+      VpcId: !GetAtt VPC.Outputs.VPC
+  deploymentToolRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - codedeploy.amazonaws.com
+            Action:
+              - "sts:AssumeRole"
+      Description: "String"
+      ManagedPolicyArns:
+        - "arn:aws:iam::aws:policy/AWSCodeDeployRoleForECS"
+        # - !Ref defaultMastRolePolicy
+      RoleName: "default-code-deploy-role"
+      Tags:
+        - Key: "used_by"
+          Value: "code-deploy"
+  VPC:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Sub https://s3.amazonaws.com/${TemplateBucketName}/VPC.yaml
+      TimeoutInMinutes: "60"
+      Parameters:
+        EnvironmentName: !Ref EnvironmentName
+  ECSClusterDefaults:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Sub https://s3.amazonaws.com/${TemplateBucketName}/ECS_CLUSTER_DEFAULTS.yaml
+      TimeoutInMinutes: "60"
+      # Parameters:
+      #   ECRPublicRepoLocation: "s1k9c2t7/mast-lambda:latest"
+  defaultTaskExecutionRolePolicy:
+    Type: "AWS::IAM::ManagedPolicy"
+    Properties:
+      ManagedPolicyName: !Ref DefaultTaskExecutionRolePolicyName
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Action:
+              - "logs:CreateLogGroup"
+            Resource: "*"
+  taskExecutionRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ecs-tasks.amazonaws.com
+            Action:
+              - "sts:AssumeRole"
+      Description: "String"
+      ManagedPolicyArns:
+        - "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
+        - !Ref defaultTaskExecutionRolePolicy
+      RoleName: !Ref DefaultTaskExecutionRoleName
+      Tags:
+        - Key: "used_by"
+          Value: "mast"
+    DependsOn: "defaultTaskExecutionRolePolicy"
+
+  # defaultTaskRolePolicy:
+  #   Type: "AWS::IAM::ManagedPolicy"
+  #   Properties:
+  #     ManagedPolicyName: "default-task-role-policy"
+  #     PolicyDocument:
+  #       Version: 2012-10-17
+  #       Statement:
+  #         - Effect: Allow
+  #           Action:
+  #             - "s3:GetObject"
+  #           Resource: "*"
+  taskRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ecs-tasks.amazonaws.com
+            Action:
+              - "sts:AssumeRole"
+      Description: "String"
+      # ManagedPolicyArns:
+      #   - !Ref defaultTaskRolePolicy
+      RoleName: !Ref DefaultTaskRoleName
+      Tags:
+        - Key: "used_by"
+          Value: "mast"
+    # DependsOn: "defaultTaskRolePolicy"
+
+  defaultApplicationLoadBalancerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: "String"
+      GroupName: !Ref DefaultApplicationLoadBalancerSecurityGroupName
+      # SecurityGroupEgress:
+      #   - Egress
+      SecurityGroupIngress:
+        - CidrIp: "0.0.0.0/0"
+          Description: "String"
+          FromPort: 0
+          IpProtocol: "tcp"
+          ToPort: 65534
+      Tags:
+        - Key: "used_by"
+          Value: "mast"
+      VpcId: !GetAtt VPC.Outputs.VPC # { "Fn::ImportValue": { "Fn::Sub": "${NetworkStackName}-VPCId" } }
+  defaultApplicationLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      IpAddressType: "ipv4"
+      # LoadBalancerAttributes:
+      #   - LoadBalancerAttribute
+      Name: !Ref DefaultApplicationLoadBalancerName
+      Scheme: "internet-facing"
+      SecurityGroups:
+        - !Ref defaultApplicationLoadBalancerSecurityGroup
+      # SubnetMappings:
+      #   - SubnetMapping
+      Subnets: { "Fn::Split": [
+              ",",
+              !GetAtt VPC.Outputs.PublicSubnets,
+              # {
+              #   "Fn::ImportValue":
+              #     { "Fn::Sub": "${NetworkStackName}-PublicSubnets" },
+              # },
+            ] }
+      Tags:
+        - Key: "used_by"
+          Value: "mast"
+      Type: "application"
+    DependsOn: "defaultApplicationLoadBalancerSecurityGroup"
+
+  defaultApplicationLoadBalancerListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      # AlpnPolicy:
+      #   - String
+      # Certificates:
+      #   - Certificate
+      DefaultActions:
+        # - Type: fixed-response
+        #   FixedResponseConfig:
+        #     ContentType: "text/plain"
+        #     MessageBody: "naughty naughty"
+        #     StatusCode: "503"
+        - Type: forward
+          ForwardConfig:
+            TargetGroups:
+              - TargetGroupArn: !Ref targetGroup1
+      LoadBalancerArn: !Ref defaultApplicationLoadBalancer
+      Port: 80
+      Protocol: HTTP
+      # SslPolicy: String
+
+  defaultServiceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: "String"
+      GroupName: !Ref DefaultServiceSecurityGroupName
+      # SecurityGroupEgress:
+      #   - Egress
+      SecurityGroupIngress:
+        - SourceSecurityGroupId: !Ref defaultApplicationLoadBalancerSecurityGroup
+          Description: "String"
+          FromPort: 0
+          IpProtocol: "tcp"
+          ToPort: 65534
+      Tags:
+        - Key: "used_by"
+          Value: "mast"
+      VpcId: !GetAtt VPC.Outputs.VPC # { "Fn::ImportValue": { "Fn::Sub": "${NetworkStackName}-VPCId" } }
+
+Outputs:
+  TargetGroup1Arn:
+    Description: ARN of the target group
+    Value: !Ref targetGroup1
+    Export: { "Name": { "Fn::Sub": "${AWS::StackName}-TargetGroup1Arn" } }
+  TargetGroup2Arn:
+    Description: ARN of the target group
+    Value: !Ref targetGroup2
+    Export: { "Name": { "Fn::Sub": "${AWS::StackName}-TargetGroup2Arn" } }
+  RoleArn:
+    Description: ARN of the role used by aws code deploy
+    Value: !GetAtt deploymentToolRole.Arn
+    Export: { "Name": { "Fn::Sub": "${AWS::StackName}-RoleArn" } }
+  LoadBalancerDomainName:
+    Description: A reference to the created VPC
+    Value: !GetAtt defaultApplicationLoadBalancer.DNSName
+    Export:
+      {
+        "Name":
+          { "Fn::Sub": "${AWS::StackName}-defaultApplicationLoadBalancer" },
+      }
+  LoadBalancerListenerId:
+    Description: A reference to the created VPC
+    Value: !Ref defaultApplicationLoadBalancerListener
+    Export:
+      {
+        "Name":
+          {
+            "Fn::Sub": "${AWS::StackName}-defaultApplicationLoadBalancerListener",
+          },
+      }
+  TaskExecutionRole:
+    Description: A reference to the created VPC
+    Value: !Ref taskExecutionRole
+    Export: { "Name": { "Fn::Sub": "${AWS::StackName}-taskExecutionRole" } }
+  TaskRole:
+    Description: A reference to the created VPC
+    Value: !Ref taskRole
+    Export: { "Name": { "Fn::Sub": "${AWS::StackName}-taskRole" } }
+  TaskExecutionRoleArn:
+    Description: A reference to the created VPC
+    Value: !GetAtt taskExecutionRole.Arn
+    Export: { "Name": { "Fn::Sub": "${AWS::StackName}-taskExecutionRoleArn" } }
+  TaskRoleArn:
+    Description: A reference to the created VPC
+    Value: !GetAtt taskRole.Arn
+    Export: { "Name": { "Fn::Sub": "${AWS::StackName}-taskRoleArn" } }
+  ServiceSecurityGroupId:
+    Description: A reference to the created VPC
+    Value: !Ref defaultServiceSecurityGroup
+    Export:
+      { "Name": { "Fn::Sub": "${AWS::StackName}-defaultServiceSecurityGroup" } }
+  VPCId:
+    Description: Vpc IS
+    Value: !GetAtt VPC.Outputs.VPC
+  PrivateSubnets:
+    Description: PrivateSubnets
+    Value: !GetAtt VPC.Outputs.PrivateSubnets
+  PublicSubnets:
+    Description: PublicSubnets
+    Value: !GetAtt VPC.Outputs.PublicSubnets
+  PrivateECRLoginCommand:
+    Description: "Just make it easier to call login for the account"
+    Value: !Sub "aws ecr get-login-password --region ${AWS::Region} | docker login --username AWS --password-stdin ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com"

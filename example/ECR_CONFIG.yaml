@@ -1,0 +1,23 @@
+Parameters:
+  ECRPublicRepoLocation:
+    Description: "Location of the image to deploy"
+    Type: "String"
+    MinLength: 1 # pseudo required
+    # MaxLength: 255,
+    # AllowedPattern: "^[a-zA-Z][-a-zA-Z0-9]*$",
+    Default: "s1k9c2t7/mast-lambda:latest"
+Resources:
+  MyECRPullThroughCacheRule:
+    Type: "AWS::ECR::PullThroughCacheRule"
+    Properties:
+      EcrRepositoryPrefix: "ecr-public"
+      UpstreamRegistryUrl: "public.ecr.aws"
+Outputs:
+  PrivateECRMastLambdaLocation:
+    Description: "Call docker pull on this URI for initialize it"
+    Value: !Sub
+      - "${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/ecr-public/${ECRPublicRepoLocation}" # !Ref ImageUri
+      - ECRPublicRepoLocation: !Ref ECRPublicRepoLocation
+  PrivateECRLoginCommand:
+    Description: "Just make it easier to call login for the account"
+    Value: !Sub "aws ecr get-login-password --region ${AWS::Region} | docker login --username AWS --password-stdin ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com"

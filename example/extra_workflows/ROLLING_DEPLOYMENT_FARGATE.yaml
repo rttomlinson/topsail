@@ -1,0 +1,64 @@
+# This is just the ecs rolling deploy. relies on min and max health percentages being set correctly
+# only supports fargate atm
+# Create a "deploy new service" workflow
+AWSTemplateFormatVersion: 2010-09-09
+Transform: 'AWS::LanguageExtensions'
+Parameters:
+  WorkflowResources:
+    Description: "Shared permissions across workflow resources"
+    Type: "String"
+    MinLength: 1 # pseudo required
+    # MaxLength: 255,
+    # AllowedPattern: "^[a-zA-Z][-a-zA-Z0-9]*$",
+    Default: "WorkflowResources"
+Resources:
+  deployApplicationServiceWorkflow:
+    Type: AWS::StepFunctions::StateMachine
+    Properties: 
+      DefinitionString: 
+        Fn::ToJsonString: {
+          "Comment": "An AWS Step Functions state machine that triggers a rolling deploy for an ECS Fargate Service.",
+          "StartAt": "Validate Cloud Spec",
+          "States": {
+              "Validate Cloud Spec": {
+                  "Type": "Task",
+                  "Resource": !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:mast-lambda",
+                  "Parameters": {
+                      "step_name": "validate_cloud_spec",
+                      "cloud_spec_json.$": "$.cloud_spec_json",
+                      "environment.$": "$.environment",
+                      "global_state.$": "$.global_state"
+                  },
+                  "Next": "Create ECS Task Definition"
+              },
+              "Create ECS Task Definition": {
+                  "Type": "Task",
+                  "Resource": !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:mast-lambda",
+                  "Parameters": {
+                      "step_name": "lambda_create_ecs_task_definition",
+                      "cloud_spec_json.$": "$.cloud_spec_json",
+                      "environment.$": "$.environment",
+                      "output_file": "/tmp/deployment.json",
+                      "cloud_spec_url": "https://raw.githubusercontent.com/yahooo",
+                      "global_state.$": "$.global_state"
+                  },
+                  "Next": "Update ECS Service"
+              },
+              "Update ECS Service": {
+                  "Type": "Task",
+                  "Resource": !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:mast-lambda",
+                  "Parameters": {
+                      "step_name": "update_ecs_service",
+                      "cloud_spec_json.$": "$.cloud_spec_json",
+                      "environment.$": "$.environment",
+                      "poll_interval": 10,
+                      "task_definition_arn.$": "$.global_state.task_definition_arn",
+                      "service_overrides_json": "{}",
+                      "global_state.$": "$.global_state"
+                  },
+                  "End": true
+              }
+          }
+      }
+      RoleArn: { "Fn::ImportValue": { "Fn::Sub": "${WorkflowResources}-RoleArn" } }
+      StateMachineName: RollingDeployService

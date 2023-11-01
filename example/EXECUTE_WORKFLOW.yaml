@@ -1,0 +1,53 @@
+# Create the executor for the workflows
+AWSTemplateFormatVersion: 2010-09-09
+Transform: "AWS::LanguageExtensions"
+Parameters:
+    WorkflowRoleArn:
+        Description: "Shared permissions across workflow resources"
+        Type: "String"
+        MinLength: 1 # pseudo required
+        # MaxLength: 255,
+        # AllowedPattern: "^[a-zA-Z][-a-zA-Z0-9]*$"
+Resources:
+    WorkflowExecutor:
+        Type: AWS::StepFunctions::StateMachine
+        Properties:
+            DefinitionString:
+                Fn::ToJsonString:
+                    {
+                        "StartAt": "Execute",
+                        "States":
+                            {
+                                "Execute":
+                                    {
+                                        "Type": "Task",
+                                        "Resource": "arn:aws:lambda:::function:topsail-lambda",
+                                        "Parameters":
+                                            {
+                                                "input.$": "$",
+                                                "step_function_execution_id.$": "$$.Execution.Id",
+                                            },
+                                        "Next": "Choose action",
+                                    },
+                                "Choose action":
+                                    {
+                                        "Type": "Choice",
+                                        "Choices":
+                                            [
+                                                {
+                                                    "Variable": "$.execution_state.status",
+                                                    "StringEquals": "DONE",
+                                                    "Next": "Process finished",
+                                                },
+                                                {
+                                                    "Variable": "$.execution_state.status",
+                                                    "StringEquals": "EXECUTING",
+                                                    "Next": "Execute",
+                                                },
+                                            ],
+                                    },
+                                "Process finished": { "Type": "Succeed" },
+                            },
+                    }
+            RoleArn: !Ref WorkflowRoleArn
+            StateMachineName: WorkflowExecutor

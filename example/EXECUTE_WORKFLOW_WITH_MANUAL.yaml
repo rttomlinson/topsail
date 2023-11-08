@@ -396,6 +396,7 @@ Resources:
         Properties:
             Handler: "index.lambda_handler"
             Role: !GetAtt LambdaSendEmailExecutionRole.Arn
+            FunctionName: LambdaHumanApprovalSendEmailFunction
             Runtime: "nodejs18.x"
             Timeout: "25"
             Code:

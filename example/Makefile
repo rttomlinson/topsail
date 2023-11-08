@@ -496,7 +496,9 @@ test_service_manifest:
 
 .PHONY: step_service_manifest
 step_service_manifest:
-	yq -o=json -I=2 ${YAML_MANIFEST_SPEC_INPUT_FILENAME} | jq '{"execution_state": {}, "deployment_spec": .deployment_spec, "state": {"cloud_spec_json": (.cloud_spec|tostring) }}'
+	yq -o=json -I=2 ${YAML_MANIFEST_SPEC_INPUT_FILENAME} > /tmp/ppare.json
+	jq -c 'del(.cloud_spec.variables,.cloud_spec.environments)' /tmp/ppare.json > /tmp/temp-ppare.json && mv /tmp/temp-ppare.json /tmp/ppare.json	
+	jq '{"execution_state": {}, "deployment_spec": .deployment_spec, "state": {"cloud_spec_json": (.cloud_spec|tostring) }}' /tmp/ppare.json > /tmp/big.json
 
 
 .PHONY: bucket
@@ -544,7 +546,7 @@ init: bucket
 	ECR_PULLTHROUGH_COMMAND=$$(aws cloudformation describe-stacks --stack-name DefaultStack | jq -r '.Stacks[0].Outputs[] | select(.OutputKey=="PrivateECRPullthrough") | .OutputValue'); \
 	echo "docker pull $$ECR_PULLTHROUGH_COMMAND"
 
-EMAIL?="rtomlinson@clari.com"
+EMAIL?="rtomlinson@foo.com"
 .PHONY: workflows
 workflows: bucket
 
@@ -683,12 +685,12 @@ codepipeline: bucket
 
 .PHONY: humanapproval
 humanapproval: bucket
-	command_output=$$(aws cloudformation create-stack --stack-name HumanApprovalTutorial --template-url https://${TEMPLATES_BUCKET_NAME}.s3.amazonaws.com/EXAMPLE_HUMAN_APPROVAL.yaml --parameters ParameterKey=Email,ParameterValue=rtomlinson@clari.com --capabilities CAPABILITY_NAMED_IAM 2>&1); \
+	command_output=$$(aws cloudformation create-stack --stack-name HumanApprovalTutorial --template-url https://${TEMPLATES_BUCKET_NAME}.s3.amazonaws.com/EXAMPLE_HUMAN_APPROVAL.yaml --parameters ParameterKey=Email,ParameterValue=rtomlinson@foo.com --capabilities CAPABILITY_NAMED_IAM 2>&1); \
 	command_exit_code=$$?; \
 	if [[ "$$command_exit_code" -ne 0 ]]; then \
 		if [[ "$${command_output}" =~ "An error occurred (AlreadyExistsException)" ]]; then \
 			echo "Stack already found. Updating instead"; \
-			aws cloudformation update-stack --stack-name HumanApprovalTutorial --template-url https://${TEMPLATES_BUCKET_NAME}.s3.amazonaws.com/EXAMPLE_HUMAN_APPROVAL.yaml --parameters ParameterKey=Email,ParameterValue=rtomlinson@clari.com --capabilities CAPABILITY_NAMED_IAM; \
+			aws cloudformation update-stack --stack-name HumanApprovalTutorial --template-url https://${TEMPLATES_BUCKET_NAME}.s3.amazonaws.com/EXAMPLE_HUMAN_APPROVAL.yaml --parameters ParameterKey=Email,ParameterValue=rtomlinson@foo.com --capabilities CAPABILITY_NAMED_IAM; \
 		else \
 			echo "$${command_output}"; \
 			exit 3; \

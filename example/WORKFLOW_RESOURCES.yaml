@@ -24,9 +24,9 @@ Resources:
           - Effect: Allow
             Action:
               - xray:PutTraceSegments
-                xray:PutTelemetryRecords
-                xray:GetSamplingRules
-                xray:GetSamplingTargets
+              - xray:PutTelemetryRecords
+              - xray:GetSamplingRules
+              - xray:GetSamplingTargets
                 # "logs:CreateLogStream"
                 # "logs:CreateLogGroup"
                 # "logs:PutLogEvents"

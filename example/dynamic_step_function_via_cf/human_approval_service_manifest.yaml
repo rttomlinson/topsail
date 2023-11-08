@@ -59,8 +59,8 @@ cloud_spec:
 
     domainName: &domain_name_ref
       prestaging:
-        standby: "default-application-lb-1948469166.us-east-1.elb.amazonaws.com"
-        active: "default-application-lb-1948469166.us-east-1.elb.amazonaws.com"
+        standby: "default-application-lb-258762521.us-east-1.elb.amazonaws.com"
+        active: "default-application-lb-258762521.us-east-1.elb.amazonaws.com"
       staging: "example-lb-int-staging"
 
     loadBalancerName: &load_balancer_name_ref
@@ -75,24 +75,24 @@ cloud_spec:
       awsvpcConfiguration:
         # Max 16 security groups (quota increase request approved - Renzo Tomlinson. 16 is the limit)
         securityGroups:
-          prestaging: [sg-0763f6db474c6177e]
+          prestaging: [sg-00d5182ccf5fef355]
           staging: [sg-0802e31816e48501a]
 
         # Max 16 subnets
         subnets:
-          prestaging: [subnet-0fd547de33ac4fe6b, subnet-09f58d66bc6ed2d78]
+          prestaging: [subnet-047273b74ccfeba27, subnet-0bb30f87f8d505b4d]
           staging:
             [subnet-1de9466b, subnet-4c3dfb14, subnet-e3c555de, subnet-60cf3d4a]
 
         assignPublicIp: DISABLED # or ENABLED #
 
     executionRoleArn: &execution_role_arn_ref
-      prestaging: "arn:aws:iam::386830708150:role/default-task-execution-role"
-      staging: "arn:aws:iam::386830708150:role/example_staging_ecs_TER"
+      prestaging: "arn:aws:iam::599617893694:role/default-task-execution-role"
+      staging: "arn:aws:iam::599617893694:role/example_staging_ecs_TER"
 
     taskRoleArn: &task_role_arn_ref
-      prestaging: "arn:aws:iam::386830708150:role/default-task-role"
-      staging: "arn:aws:iam::386830708150:role/example_staging_ecs_TR"
+      prestaging: "arn:aws:iam::599617893694:role/default-task-role"
+      staging: "arn:aws:iam::599617893694:role/example_staging_ecs_TR"
 
   aws:
     region: us-east-1
@@ -404,83 +404,78 @@ cloud_spec:
       body: '/buildVersion:[ ]+"${BUILD_VERSION}"/'
 
 deployment_spec:
-  StartAt: "Validate Cloud Spec"
-  States:
-    Validate Cloud Spec:
-      Type: "Task"
-      # Resource: "function:mast-lambda"
-      Parameters:
-        {
-          "step_name": "validate_cloud_spec",
-          "cloud_spec_json.$": "$.cloud_spec_json",
-          "context": ["prestaging", "standby"],
-          "output_file": "/tmp/deployment.json",
-        }
-      ResultPath: "standby_cloud_spec"
-      Next: "Create ECS Task Definition"
-
-    Create ECS Task Definition:
-      Type: "Task"
-      # Resource: "function:mast-lambda"
-      Parameters:
-        {
-          "step_name": "create_ecs_task_definition",
-          "cloud_spec_json.$": "$.standby_cloud_spec.cloud_spec_json",
-          "output_file": "/tmp/deployment.json",
-          "cloud_spec_url": "https://raw.githubusercontent.com/yahooo",
-        }
-      ResultPath: "ecs_task_definition"
-      Next: "Create ELB Target Groups"
-
-    Create ELB Target Groups:
-      Type: "Task"
-      # Resource: "function:mast-lambda"
-      Parameters:
-        {
-          "step_name": "create_elb_target_groups",
-          "cloud_spec_json.$": "$.standby_cloud_spec.cloud_spec_json",
-        }
-      # ResultPath: "elb_target_groups"
-      Next: "Create or Update ELB Listeners"
-    Create or Update ELB Listeners:
-      Type: "Task"
-      # Resource: "function:mast-lambda"
-      Parameters:
-        {
-          "step_name": "update_elb_listeners",
-          "cloud_spec_json.$": "$.standby_cloud_spec.cloud_spec_json",
-        }
-      # ResultPath: "elb_listener_rules"
-      Next: "Update ELB Listener Rules"
-    Update ELB Listener Rules:
-      Type: "Task"
-      # Resource: "function:mast-lambda"
-      Parameters:
-        {
-          "step_name": "update_elb_listener_rules",
-          "cloud_spec_json.$": "$.standby_cloud_spec.cloud_spec_json",
-        }
-      # ResultPath: "elb_listener_rules"
-      Next: "Create ECS Service"
-
-    Create ECS Service:
-      Type: "Task"
-      # Resource: "function:mast-lambda"
-      Parameters:
-        {
-          "step_name": "create_ecs_service",
-          "cloud_spec_json.$": "$.standby_cloud_spec.cloud_spec_json",
-          "poll_interval": 10,
-          "task_definition_arn.$": "$.ecs_task_definition.task_definition_arn",
-          "output_file": "/tmp/deployment.json",
-        }
-      # ResultPath: "ecs_service"
-      Next: "ManualApproval"
-
-    ManualApproval:
-      Type: "Manual_Approval"
-      # Resource: "function:mast-lambda"
-      # Parameters will help us determine what kind of manual approvals are allowed
-      Parameters: {}
-      # ResultPath: "ecs_service"
-      End: true,
+  contexts: []
+  cloud_formation:
+    # Create the executor for the workflows
+    AWSTemplateFormatVersion: "2010-09-09"
+    Transform: "AWS::LanguageExtensions"
+    Parameters:
+      WorkflowRoleArn:
+        Description: "Shared permissions across workflow resources"
+        Type: "String"
+        MinLength: 1 # pseudo required
+        # MaxLength: 255,
+        # AllowedPattern: "^[a-zA-Z][-a-zA-Z0-9]*$"
+        Default: "arn:aws:iam::599617893694:role/default-step-function-lambda-role"
+      Email:
+        Type: String
+        AllowedPattern: "^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\\.[a-zA-Z0-9-.]+$"
+        ConstraintDescription: Must be a valid email address.
+        Default: "rtomlinson@foo.com"
+      ExecutionApi:
+        Type: String
+        ConstraintDescription: Needs to be updated to match the new value
+        Default: "4n3fvb2zj8"
+    Resources:
+      WorkflowExecutor:
+        Type: AWS::StepFunctions::StateMachine
+        Properties:
+          DefinitionString:
+            Fn::Sub: |
+              {
+                "Comment": "A simple AWS Step Functions state machine.",
+                "StartAt": "Lambda Callback",
+                "States": {
+                    "Lambda Callback": {
+                        "Type": "Task",
+                        "Resource": "arn:${AWS::Partition}:states:::lambda:invoke.waitForTaskToken",
+                        "Parameters": {
+                            "FunctionName": "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:LambdaHumanApprovalSendEmailFunction",
+                            "Payload": {
+                                "ExecutionContext.$": "$$",
+                                "APIGatewayEndpoint": "https://${ExecutionApi}.execute-api.${AWS::Region}.amazonaws.com/states"
+                            }
+                        },
+                        "Next": "ManualApprovalChoiceState"
+                    },
+                    "ManualApprovalChoiceState": {
+                        "Type": "Choice",
+                        "Choices": [
+                            {
+                                "Variable": "$.Status",
+                                "StringEquals": "Approved! Task approved by ${Email}",
+                                "Next": "ApprovedPassState"
+                            },
+                            {
+                                "Variable": "$.Status",
+                                "StringEquals": "Rejected! Task rejected by ${Email}",
+                                "Next": "RejectedPassState"
+                            }
+                        ]
+                    },
+                    "ApprovedPassState": {
+                        "Type": "Pass",
+                        "End": true
+                    },
+                    "RejectedPassState": {
+                        "Type": "Pass",
+                        "End": true
+                    }
+                }
+              }
+          RoleArn: { "Ref": "WorkflowRoleArn" }
+          StateMachineName: MyCustomWorkflowExecutor
+    Outputs:
+      StepFunctionArn:
+        Description: "ARN of custom step function"
+        Value: { "Ref": "WorkflowExecutor" }

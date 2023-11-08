@@ -59,8 +59,8 @@ cloud_spec:
 
     domainName: &domain_name_ref
       prestaging:
-        standby: "default-application-lb-1948469166.us-east-1.elb.amazonaws.com"
-        active: "default-application-lb-1948469166.us-east-1.elb.amazonaws.com"
+        standby: "default-application-lb-258762521.us-east-1.elb.amazonaws.com"
+        active: "default-application-lb-258762521.us-east-1.elb.amazonaws.com"
       staging: "example-lb-int-staging"
 
     loadBalancerName: &load_balancer_name_ref
@@ -75,24 +75,24 @@ cloud_spec:
       awsvpcConfiguration:
         # Max 16 security groups (quota increase request approved - Renzo Tomlinson. 16 is the limit)
         securityGroups:
-          prestaging: [sg-0763f6db474c6177e]
+          prestaging: [sg-00d5182ccf5fef355]
           staging: [sg-0802e31816e48501a]
 
         # Max 16 subnets
         subnets:
-          prestaging: [subnet-0fd547de33ac4fe6b, subnet-09f58d66bc6ed2d78]
+          prestaging: [subnet-047273b74ccfeba27, subnet-0bb30f87f8d505b4d]
           staging:
             [subnet-1de9466b, subnet-4c3dfb14, subnet-e3c555de, subnet-60cf3d4a]
 
         assignPublicIp: DISABLED # or ENABLED #
 
     executionRoleArn: &execution_role_arn_ref
-      prestaging: "arn:aws:iam::386830708150:role/default-task-execution-role"
-      staging: "arn:aws:iam::386830708150:role/example_staging_ecs_TER"
+      prestaging: "arn:aws:iam::452541945390:role/default-task-execution-role"
+      staging: "arn:aws:iam::452541945390:role/example_staging_ecs_TER"
 
     taskRoleArn: &task_role_arn_ref
-      prestaging: "arn:aws:iam::386830708150:role/default-task-role"
-      staging: "arn:aws:iam::386830708150:role/example_staging_ecs_TR"
+      prestaging: "arn:aws:iam::452541945390:role/default-task-role"
+      staging: "arn:aws:iam::452541945390:role/example_staging_ecs_TR"
 
   aws:
     region: us-east-1
@@ -124,15 +124,15 @@ cloud_spec:
             - protocol: HTTP
               port: 8080
 
-              # Listener rule configuration for this service. In Clari standard blue/green deploys
+              # Listener rule configuration for this service. In Foo standard blue/green deploys
               # we are creating a new ECS service for each deployment, and add a new rule or modify
               # existing standby listener rule to match requests directed to a testing hostname
-              # that is defined per environment, e.g. example1.clari.com, and we forward the matching
+              # that is defined per environment, e.g. example1.foo.com, and we forward the matching
               # traffic to the target group configured in the section below to provide for automated
               # and manual testing.
               # After we are satisfied with test results, the traffic is switched to the same target group
               # using the active rule configuration which matches requests directed to the active hostname,
-              # e.g. app.clari.com.
+              # e.g. app.foo.com.
               rules:
                 - placement: end
 
@@ -379,9 +379,9 @@ cloud_spec:
       # the relevant content-type header.
       headers:
         prestaging:
-          - "host: example1.prestaging.clari.com"
+          - "host: example1.prestaging.foo.com"
         staging:
-          - "host: example1.staging.clari.com"
+          - "host: example1.staging.foo.com"
 
       # Request body for methods that need it. Ignored for GET and HEAD.
       # To include JSON, enclose it in single quotes.
@@ -416,7 +416,7 @@ deployment_spec:
         MinLength: 1 # pseudo required
         # MaxLength: 255,
         # AllowedPattern: "^[a-zA-Z][-a-zA-Z0-9]*$"
-        Default: "arn:aws:iam::771802784268:role/default-step-function-lambda-role"
+        Default: "arn:aws:iam::452541945390:role/default-step-function-lambda-role"
     Resources:
       WorkflowExecutor:
         Type: AWS::StepFunctions::StateMachine
@@ -435,7 +435,7 @@ deployment_spec:
                           "Resource": "arn:aws:lambda:::function:mast-lambda",
                           "Parameters":
                             {
-                              "step_name": "contexts_validate_cloud_spec",
+                              "step_name": "validate_cloud_spec",
                               "cloud_spec_json.$": "$.cloud_spec_json",
                               "context": ["prestaging", "standby"],
                               "output_file": "/tmp/deployment.json",
@@ -449,7 +449,7 @@ deployment_spec:
                           "Resource": "arn:aws:lambda:::function:mast-lambda",
                           "Parameters":
                             {
-                              "step_name": "contexts_lambda_create_ecs_task_definition",
+                              "step_name": "create_ecs_task_definition",
                               "cloud_spec_json.$": "$.standby_cloud_spec.cloud_spec_json",
                               "output_file": "/tmp/deployment.json",
                               "cloud_spec_url": "https://raw.githubusercontent.com/yahooo",
@@ -463,7 +463,7 @@ deployment_spec:
                           "Resource": "arn:aws:lambda:::function:mast-lambda",
                           "Parameters":
                             {
-                              "step_name": "contexts_create_elb_target_groups",
+                              "step_name": "create_elb_target_groups",
                               "cloud_spec_json.$": "$.standby_cloud_spec.cloud_spec_json",
                             },
                           "ResultPath": "$.elb_target_groups",
@@ -475,7 +475,7 @@ deployment_spec:
                           "Resource": "arn:aws:lambda:::function:mast-lambda",
                           "Parameters":
                             {
-                              "step_name": "contexts_update_elb_listener_rules",
+                              "step_name": "update_elb_listener_rules",
                               "cloud_spec_json.$": "$.standby_cloud_spec.cloud_spec_json",
                             },
                           "ResultPath": "$.elb_listener_rules",
@@ -487,7 +487,7 @@ deployment_spec:
                           "Resource": "arn:aws:lambda:::function:mast-lambda",
                           "Parameters":
                             {
-                              "step_name": "contexts_lambda_create_ecs_service",
+                              "step_name": "lambda_create_ecs_service",
                               "cloud_spec_json.$": "$.standby_cloud_spec.cloud_spec_json",
                               "poll_interval": 10,
                               "task_definition_arn.$": "$.ecs_task_definition.task_definition_arn",
@@ -502,6 +502,6 @@ deployment_spec:
           RoleArn: { "Ref": "WorkflowRoleArn" }
           StateMachineName: MyCustomWorkflowExecutor
     Outputs:
-      StateFunctionArn:
+      StepFunctionArn:
         Description: "ARN of custom step function"
         Value: { "Ref": "WorkflowExecutor" }

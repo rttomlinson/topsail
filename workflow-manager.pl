@@ -11,6 +11,11 @@ use Carp;
 use JSON::PP;
 use Data::Dumper;
 use AWS::CLIWrapper;
+use POSIX;
+
+# Logger helper module for aws lambda request
+use Topsail::CustomLogger qw(get_logger);
+my $log = get_logger();
 
 sub handle {
 
@@ -22,7 +27,7 @@ sub handle {
         region => $aws_region,
         croak_on_error => 1,
     );
-
+    
     my $json_file = '/tmp/service_manifest.json';
     my $json_text = do { open my $fh, '<', $json_file; local $/; <$fh> };
     my $perl_data = decode_json $json_text;
@@ -36,7 +41,7 @@ sub handle {
         'template-body' => encode_json $perl_data->{deployment_spec}->{cloud_formation},
         'capabilities' => ["CAPABILITY_AUTO_EXPAND", "CAPABILITY_NAMED_IAM"],
         });
-        say "creating-stack";
+        $log->info("creating-stack");
         $res->{StackId};
     };   
 
@@ -49,17 +54,17 @@ sub handle {
     my $stack_status;
     while($stack_status ne 'CREATE_COMPLETE'){
         if($stack_status eq 'ROLLBACK_COMPLETE'){
-            say "Status reached ROLLBACK_COMPLETE. Deleting stack...";
+            $log->info("Status reached ROLLBACK_COMPLETE. Deleting stack...");
             $aws->cloudformation('delete-stack', {
                 'stack-name' => $stack_name,
             });
-            confess "stack failed to create";
+            $log->logconfess("stack failed to create");
         }
         $stack_status = do {
             my $res = $aws->cloudformation('describe-stacks', {
                 'stack-name' => $stack_name,
             });
-            say "waiting for stack to complete";
+            $log->info("waiting for stack to complete");
             $res->{Stacks}->[0]->{StackStatus};
         };
         sleep(3);
@@ -68,15 +73,12 @@ sub handle {
     my $res = $aws->cloudformation('describe-stacks', {
         'stack-name' => $stack_name,
     });
-    say "grabbing-output-stack";
+    $log->info("grabbing-output-stack");
     my $outputs = $res->{Stacks}->[0]->{Outputs};
-    my ($state_function_output) = grep {$_->{OutputKey} eq 'StateFunctionArn'} @{$outputs};
+    my ($state_function_output) = grep {$_->{OutputKey} eq 'StepFunctionArn'} @{$outputs};
     
     my $state_function_arn = $state_function_output->{OutputValue};
     # Execute the step function
-
-
-    # execute the step function
     my $execution_name = "hello-name";
     my $input = {"cloud_spec_json" => $perl_data->{state}->{cloud_spec_json} };
     my $execution_res = $aws->stepfunctions('start-execution', {
@@ -87,9 +89,9 @@ sub handle {
     });
     my $execution_arn = $execution_res->{executionArn};
     my $console_url = "https://us-east-1.console.aws.amazon.com/states/home?region=us-east-1#/v2/executions/details/${execution_arn}";
-    say $console_url;
+    $log->info($console_url);
     # output where to get details about stack
-    my $execution_history = $aws->stepfunctions('get-execution-history', { 'execution-arn' => $execution_res->{executionArn} });
+    # my $execution_history = $aws->stepfunctions('get-execution-history', { 'execution-arn' => $execution_res->{executionArn} });
     # wait for execution completion
     my $execution_details = $aws->stepfunctions('describe-execution', { 'execution-arn' => $execution_res->{executionArn} });
     my $execution_status = $execution_details->{status};
@@ -97,91 +99,113 @@ sub handle {
     while($execution_status eq 'RUNNING'){
         $execution_details = $aws->stepfunctions('describe-execution', { 'execution-arn' => $execution_res->{executionArn} });
         $execution_status = $execution_details->{status};
-        $execution_history = $aws->stepfunctions('get-execution-history', { 'execution-arn' => $execution_res->{executionArn} });
+        # $execution_history = $aws->stepfunctions('get-execution-history', { 'execution-arn' => $execution_res->{executionArn} });
         last if $execution_status eq 'SUCCEEDED';
         if($execution_status =~ /(FAILED|TIMED_OUT|ABORTED)/) {
-            say "execution has unexpected status: $execution_status. Aborting";
+            $log->info("execution has unexpected status: $execution_status. Aborting");
             last;
         } 
-        say "waiting 10 seconds before checking execution status...";
+        $log->info("waiting 10 seconds before checking execution status...");
         sleep(10);
     }
 
-    $execution_history = $aws->stepfunctions('get-execution-history', { 'execution-arn' => $execution_res->{executionArn} });
+    # Grab information about the execution of the step function
+    # $execution_history = $aws->stepfunctions('get-execution-history', { 'execution-arn' => $execution_res->{executionArn} });
     $execution_details = $aws->stepfunctions('describe-execution', { 'execution-arn' => $execution_res->{executionArn} });
-    my $traceHeader = $execution_details->{traceHeader};
+    my $trace_header = $execution_details->{traceHeader};
     # extract traceHeaderId
     # Using crude matching pattern since expected pattern is not known at this time
-    my $index = index ($traceHeader, '=');
-    $traceHeader = substr($traceHeader, $index+1);
-    $index = index ($traceHeader, ';');
-    $traceHeader = substr($traceHeader, 0, $index);
-    my $traceHeaderId = $traceHeader;
+    my $index = index ($trace_header, '=');
+    $trace_header = substr($trace_header, $index+1);
+    $index = index ($trace_header, ';');
+    $trace_header = substr($trace_header, 0, $index);
+    my $trace_header_id = $trace_header;
     # 'Root=1-65411689-72a13f748cbdfaea6aeef640;Sampled=1'
-    say "https://us-east-1.console.aws.amazon.com/cloudwatch/home?region=us-east-1#xray:traces/${traceHeaderId}";
+    $log->info("https://us-east-1.console.aws.amazon.com/cloudwatch/home?region=us-east-1#xray:traces/${trace_header_id}");
     # type => LambdaFunctionScheduled
 
-    # Grab the one with name = matching the Step Function
-    # From there you can get the subsegments
     # Reorder the subsegments to match the actual execution order
     # What happens if it gets replayed? We can't handle that yet.
     # I.E. Can't reuse a step. That's bad...
 
-    # Get subsegments
-    # Get [0]
-    # aws->{request_id}
-
+    ##############################################################
+    ## This section need to happen independently while the stack/step function exists. and in particular _this_ execution of it.
     # Use request_id to parse cloudwatch logs
+    ###
+    # We need some kind of interface for getting the logs
+
     my $workflow_name = "MyCustomWorkflowExecutor";
     my $segment_name_matcher = "\"name\":\"${workflow_name}\"";
-    my $segments = $aws->xray('batch-get-traces', { 'trace-ids' => [$traceHeaderId] })->{Traces}->[0]->{Segments};
+    my $segments = $aws->xray('batch-get-traces', { 'trace-ids' => [$trace_header_id] })->{Traces}->[0]->{Segments};
     my ($step_function_segment) = grep {$_->{Document} =~ /$segment_name_matcher/} @{$segments};
     my $segment_document_payload = decode_json $step_function_segment->{Document};
 
     # by default newest to oldest
     my @subsegments = @{$segment_document_payload->{subsegments}};
-        # describe lambda?
-        # arn:aws:lambda:us-east-1:860426437628:function:mast-lambda
-        
-    #     aws lambda invoke --function-name my-function out --log-type Tail \
-    # --query 'LogResult' --output text --cli-binary-format raw-in-base64-out | base64 --decode
-        # /aws/lambda/<function name>
-        # fields @log, @timestamp, @message
-        # | filter @requestId = "19ecd546-16bc-46f7-933c-ebc226174d16" or @requestId = "6a695d72-ca80-41bc-aa1b-ab3d22ad643f" or @requestId = "b004e837-0406-4a68-803e-23b2f321bc1c" or @message like "1-65414d13-c87470f1d3523293a46a5dae" or @message like "65414d13c87470f1d3523293a46a5dae"
-        # | sort @timestamp, @message desc
-    my $start_time_utc = 1698778388;
-    my $end_time_utc = 1698778415;
-    my $query_string = 'fields @log, @timestamp, @message | filter @requestId = "19ecd546-16bc-46f7-933c-ebc226174d16" or @requestId = "6a695d72-ca80-41bc-aa1b-ab3d22ad643f" or @requestId = "b004e837-0406-4a68-803e-23b2f321bc1c" or @message like "1-65414d13-c87470f1d3523293a46a5dae" or @message like "65414d13c87470f1d3523293a46a5dae" | sort @timestamp, @message desc';
-    my $query_res = $aws->logs('start-query', { 'log-group-name' => "/aws/lambda/mast-lambda", 'query-string' => $query_string, 'start-time' => $start_time_utc, 'end-time' => $end_time_utc });
+    my @sorted_subsegments = sort { $a->{start_time} + 0 <=> $b->{start_time} + 0 } @subsegments;
+    # describe lambda?
+    # arn:aws:lambda:us-east-1:860426437628:function:mast-lambda
+    my %request_ids;
+    for my $subsegment_data (@sorted_subsegments){
+        $request_ids{$subsegment_data->{subsegments}->[0]->{aws}->{request_id}} = 1;
+    }
+    my @request_ids = keys %request_ids;
+    
+    # I think start-query will also make this assumption since it expects seconds.
+    my $first_subsegment_start_time_in_seconds_utc = $sorted_subsegments[0]->{start_time}+0;
+    my $last_sebsegment_end_time_in_seconds_utc = $sorted_subsegments[-1]->{end_time}+0;
+
+    my $start_time_utc = floor($first_subsegment_start_time_in_seconds_utc);
+    my $end_time_utc   = ceil($last_sebsegment_end_time_in_seconds_utc);
+
+    # my $log_query_filter_start = 'fields @log, @timestamp, @message | filter ';
+    # my $log_query_filter_end = ' | sort @timestamp, @message desc';
+    my @filters;
+    my $or_joiner = " or ";
+
+    for my $request_id (@request_ids) {
+        my $request_id_filter_match_template = "\@requestId = \"$request_id\"";
+        my $request_id_in_message = "\@message like \"$request_id\"";
+        push(@filters, ($request_id_filter_match_template, $request_id_in_message));
+    }
+    my $trace_substr = substr $trace_header_id, 2;
+    my $trace_id_filter_in_message = "\@message like \"$trace_header_id\" or \@message like \"$trace_substr\"";
+    push(@filters, $trace_id_filter_in_message);
+    my $complete_filter = join $or_joiner, @filters;
+
+    my $query_string = "fields \@log, \@timestamp, \@message | filter $complete_filter | sort \@timestamp, \@message desc";
+    # my $query_string = 'fields @log, @timestamp, @message | filter @requestId = "3d23d996-681a-44a9-8bd0-3e497d9532e5" or @requestId = "b63d64bc-8159-4f44-ab7e-6cf606c5122b" or @requestId = "2e69870f-929b-42c3-8d20-cd3ed0db9d81" or @message like "1-6542afac-abd7a333a0cfa58d2636a909" or @message like "6542afac-abd7a333a0cfa58d2636a909" or @message like "b63d64bc-8159-4f44-ab7e-6cf606c5122b" | sort @timestamp, @message desc';
+    $log->info("Query string: $query_string");
+    $log->info("Start time (UTC seconds): $start_time_utc");
+    $log->info("End time (UTC seconds): $end_time_utc");
+    my %logs_query = ("query_string" => $query_string, "start_time" => $start_time_utc, "end_time" => $end_time_utc);
+    my $log_group_name = "/aws/lambda/mast-lambda";
+    my $query_res = $aws->logs('start-query', { 'log-group-name' => $log_group_name, 'query-string' => $query_string, 'start-time' => $start_time_utc, 'end-time' => $end_time_utc });
     my $query_id = $query_res->{queryId};
         # use these to get log streams then parse it for relevant logs
-    my $query_results = $aws->logs('get-query-results', { 'query-id' => $query_id });
-
-    $aws->logs('get-log-record', { 'log-record-pointer' => "CmcKKAokODYwNDI2NDM3NjI4Oi9hd3MvbGFtYmRhL21hc3QtbGFtYmRhEAESNxoYAgZJy1GnAAAAATnreecABlQUzmAAAAByIAEo87HUuLgxMPr71bi4MTgUQNjuAUiNxQFQ+WMYACABEBIYAQ==" });
-
-    if($query_results->{status}) {
-        say "hello";
-    }
-    $DB::single=1;
-
+    my $query_results;
+    # $aws->logs('get-log-record', { 'log-record-pointer' => "CmcKKAokODYwNDI2NDM3NjI4Oi9hd3MvbGFtYmRhL21hc3QtbGFtYmRhEAESNxoYAgZJy1GnAAAAATnreecABlQUzmAAAAByIAEo87HUuLgxMPr71bi4MTgUQNjuAUiNxQFQ+WMYACABEBIYAQ==" });
     while($query_results->{status} ne 'Complete'){
         $query_results = $aws->logs('get-query-results', { 'query-id' => $query_id });
         if($query_results->{status} eq 'Running' or $query_results->{status} eq 'Scheduled'){
-            say "waiting for query results...";
+            $log->info("waiting for query results...");
             sleep(5);
+        } elsif($query_results->{status} eq 'Complete') {
+            last;
         } else {
             my $query_status = $query_results->{status};
-            say "we dont know how to handle $query_status";
+            $log->info("we dont know how to handle $query_status");
             last;
         }
     }
+    say Dumper($query_results);
+    ######################################
+
     # Possible values are Cancelled , Complete , Failed , Running , Scheduled , Timeout , and Unknown .
     # Output logging details
-
-    # Once we finally have this _then_ we can look up the streams of the log group and grab the appropriate logs for each step
-
-    # $xray_execution_history = ;
     $DB::single=1;
+
+    # basically the idea here would be to keep scanning for new logs until we're told to clean everything up
     # Clean up the step function
     # Determine if should clean-up immediately?
     my $delete_stack_status;
@@ -201,20 +225,20 @@ sub handle {
         if($@) {
             my $error_message_matcher = "Stack with id ${stack_name} does not exist";
             if($@ =~ /$error_message_matcher/){
-                say "stack was deleted";
+                $log->info("stack was deleted");
                 last;
             } else {
-                confess $@;
+                $log->logconfess($@);
             }
         }
 
         if($delete_stack_status eq 'DELETE_IN_PROGRESS'){
-            say "deleting in progress. waiting 3 seconds...";
+            $log->info("deleting in progress. waiting 3 seconds...");
             sleep(3);
         }
         
     }
-    say "goodbye";
+    $log->info("goodbye");
     return;
 
 

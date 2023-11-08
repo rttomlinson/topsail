@@ -59,8 +59,8 @@ cloud_spec:
 
     domainName: &domain_name_ref
       prestaging:
-        standby: "default-application-lb-1948469166.us-east-1.elb.amazonaws.com"
-        active: "default-application-lb-1948469166.us-east-1.elb.amazonaws.com"
+        standby: "default-application-lb-2058232679.us-east-1.elb.amazonaws.com"
+        active: "default-application-lb-2058232679.us-east-1.elb.amazonaws.com"
       staging: "example-lb-int-staging"
 
     loadBalancerName: &load_balancer_name_ref
@@ -75,24 +75,24 @@ cloud_spec:
       awsvpcConfiguration:
         # Max 16 security groups (quota increase request approved - Renzo Tomlinson. 16 is the limit)
         securityGroups:
-          prestaging: [sg-0763f6db474c6177e]
+          prestaging: [sg-0553cfcde442fd42a]
           staging: [sg-0802e31816e48501a]
 
         # Max 16 subnets
         subnets:
-          prestaging: [subnet-0fd547de33ac4fe6b, subnet-09f58d66bc6ed2d78]
+          prestaging: [subnet-05ea5e798ffc50794, subnet-01a4ddc7507ad0e19]
           staging:
             [subnet-1de9466b, subnet-4c3dfb14, subnet-e3c555de, subnet-60cf3d4a]
 
         assignPublicIp: DISABLED # or ENABLED #
 
     executionRoleArn: &execution_role_arn_ref
-      prestaging: "arn:aws:iam::386830708150:role/default-task-execution-role"
-      staging: "arn:aws:iam::386830708150:role/example_staging_ecs_TER"
+      prestaging: "arn:aws:iam::621125127298:role/default-task-execution-role"
+      staging: "arn:aws:iam::621125127298:role/example_staging_ecs_TER"
 
     taskRoleArn: &task_role_arn_ref
-      prestaging: "arn:aws:iam::386830708150:role/default-task-role"
-      staging: "arn:aws:iam::386830708150:role/example_staging_ecs_TR"
+      prestaging: "arn:aws:iam::621125127298:role/default-task-role"
+      staging: "arn:aws:iam::621125127298:role/example_staging_ecs_TR"
 
   aws:
     region: us-east-1
@@ -124,15 +124,15 @@ cloud_spec:
             - protocol: HTTP
               port: 8080
 
-              # Listener rule configuration for this service. In Clari standard blue/green deploys
+              # Listener rule configuration for this service. In Foo standard blue/green deploys
               # we are creating a new ECS service for each deployment, and add a new rule or modify
               # existing standby listener rule to match requests directed to a testing hostname
-              # that is defined per environment, e.g. example1.clari.com, and we forward the matching
+              # that is defined per environment, e.g. example1.foo.com, and we forward the matching
               # traffic to the target group configured in the section below to provide for automated
               # and manual testing.
               # After we are satisfied with test results, the traffic is switched to the same target group
               # using the active rule configuration which matches requests directed to the active hostname,
-              # e.g. app.clari.com.
+              # e.g. app.foo.com.
               rules:
                 - placement: end
 
@@ -379,9 +379,9 @@ cloud_spec:
       # the relevant content-type header.
       headers:
         prestaging:
-          - "host: example1.prestaging.clari.com"
+          - "host: example1.prestaging.foo.com"
         staging:
-          - "host: example1.staging.clari.com"
+          - "host: example1.staging.foo.com"
 
       # Request body for methods that need it. Ignored for GET and HEAD.
       # To include JSON, enclose it in single quotes.
@@ -402,77 +402,228 @@ cloud_spec:
       # matches are possible using (?m) modifier at the start of the pattern. Likewise,
       # case insensitive matching can be specified with (?i) modifier.
       body: '/buildVersion:[ ]+"${BUILD_VERSION}"/'
-
+# what role to assume and which role to use
 deployment_spec:
-  StartAt: "Validate Cloud Spec"
-  States:
-    Validate Cloud Spec:
-      Type: "Task"
-      # Resource: "function:mast-lambda"
-      Parameters:
-        {
-          "step_name": "validate_cloud_spec",
-          "cloud_spec_json.$": "$.cloud_spec_json",
-          "context": ["prestaging", "standby"],
-          "output_file": "/tmp/deployment.json",
-        }
-      ResultPath: "standby_cloud_spec"
-      Next: "Create ECS Task Definition"
+  deploy:
+    TMPDIR: /tmp # Something scoped at the system level - specific to the host machine and user space
+    StartAt: "Validate Cloud Spec"
+    States:
+      Validate Cloud Spec:
+        Type: "Task"
+        # Resource: "function:mast-lambda"
+        # Parameters:
+        ResultPath: "standby_cloud_spec"
+        Next: "Create ECS Task Definition"
 
-    Create ECS Task Definition:
-      Type: "Task"
-      # Resource: "function:mast-lambda"
-      Parameters:
-        {
-          "step_name": "create_ecs_task_definition",
-          "cloud_spec_json.$": "$.standby_cloud_spec.cloud_spec_json",
-          "output_file": "/tmp/deployment.json",
-          "cloud_spec_url": "https://raw.githubusercontent.com/yahooo",
-        }
-      ResultPath: "ecs_task_definition"
-      Next: "Create ELB Target Groups"
+        type: SHELL_SCRIPT
+        outputVars: standby_cloud_spec
+        scriptString: |
+          set -e -o pipefail
+          # Expected env vars???
+          # What about multiple contexts?
+          # outputVars - which becomes the output file?
+          # context
+          # cloud_spec_json
+          # HOME?
+          # TMPDIR?
 
-    Create ELB Target Groups:
-      Type: "Task"
-      # Resource: "function:mast-lambda"
-      Parameters:
-        {
-          "step_name": "create_elb_target_groups",
-          "cloud_spec_json.$": "$.standby_cloud_spec.cloud_spec_json",
-        }
-      # ResultPath: "elb_target_groups"
-      Next: "Create or Update ELB Listeners"
-    Create or Update ELB Listeners:
-      Type: "Task"
-      # Resource: "function:mast-lambda"
-      Parameters:
-        {
-          "step_name": "update_elb_listeners",
-          "cloud_spec_json.$": "$.standby_cloud_spec.cloud_spec_json",
-        }
-      # ResultPath: "elb_listener_rules"
-      Next: "Update ELB Listener Rules"
-    Update ELB Listener Rules:
-      Type: "Task"
-      # Resource: "function:mast-lambda"
-      Parameters:
-        {
-          "step_name": "update_elb_listener_rules",
-          "cloud_spec_json.$": "$.standby_cloud_spec.cloud_spec_json",
-        }
-      # ResultPath: "elb_listener_rules"
-      Next: "Create ECS Service"
+          # TMPDIR probably needs to come from some system setting or using docker volumes
+          TMPDIR=/tmp
+          export OUTPUT_FILE="${outputVars}.json"
+          # Also need to figure out wtf HOME is for different systems - Probably needs to be set at the beginning also depending on the user
+          # Maybe we set the user for the entire execution or generate a new one. Seems messy
+          mkdir -p "${HOME}/tmp"
+          # trap "rm -f $OUTPUT_FILE" 0
 
-    Create ECS Service:
-      Type: "Task"
-      # Resource: "function:mast-lambda"
-      Parameters:
-        {
-          "step_name": "create_ecs_service",
-          "cloud_spec_json.$": "$.standby_cloud_spec.cloud_spec_json",
-          "poll_interval": 10,
-          "task_definition_arn.$": "$.ecs_task_definition.task_definition_arn",
-          "output_file": "/tmp/deployment.json",
-        }
-      # ResultPath: "ecs_service"
-      End: true,
+          docker run -i --init --mount type=bind,source="${HOME}${TMPDIR}",target=$TMPDIR rttomlinson/mast validate_cloud_spec \
+              --context "${context}" \
+              --context "active" \
+              --output-file "$TMPDIR/$OUTPUT_FILE" \
+              --cloud-spec-json "${cloud_spec_json}"
+
+          # I need to somehow get the file out of this execution and into cloud_spec_json
+          # You have to look up the API and realize that this returns cloud_spec_json
+              
+          # will always return key-value pairs as strings
+          # turn this info json and encode it and set it as the output value to outputVars
+
+          echo "${HOME}${TMPDIR}/${OUTPUT_FILE}"
+        scriptType: BASH
+        timeoutMillis: 30000
+        variables:
+          - name: context
+            value: ${workflow.context}
+          - name: cloud_spec_json
+            value: ${workflow.cloud_spec_json}
+      Create ECS Task Definition:
+        Type: "Task"
+        # Resource: "function:mast-lambda"
+        # Parameters:
+        ResultPath: "task_definition"
+        End: true
+
+        type: SHELL_SCRIPT
+        outputVars: task_definition
+        scriptString: |
+          set -e -o pipefail
+          # TMPDIR probably needs to come from some system setting or using docker volumes
+          TMPDIR=/tmp
+          export OUTPUT_FILE="${outputVars}.json"
+          # Also need to figure out wtf HOME is for different systems - Probably needs to be set at the beginning also depending on the user
+          # Maybe we set the user for the entire execution or generate a new one. Seems messy
+          mkdir -p "${HOME}/tmp"
+          # trap "rm -f $OUTPUT_FILE" 0
+
+          docker run -i --init --mount type=bind,source="${HOME}${TMPDIR}",target=$TMPDIR --mount type=bind,source="${HOME}/.aws",target=/root/.aws rttomlinson/mast create_ecs_task_definition \
+              --cloud-spec-url "active" \
+              --output-file "$TMPDIR/$OUTPUT_FILE" \
+              --cloud-spec-json "${cloud_spec_json}"
+
+          # I need to somehow get the file out of this execution and into cloud_spec_json
+          # You have to look up the API and realize that this returns cloud_spec_json
+              
+          # will always return key-value pairs as strings
+          # turn this info json and encode it and set it as the output value to outputVars
+
+          echo "${HOME}${TMPDIR}/${OUTPUT_FILE}"
+        scriptType: BASH
+        timeoutMillis: 30000
+        variables:
+          - name: context
+            value: ${workflow.context}
+          - name: cloud_spec_json
+            value: ${workflow.standby_cloud_spec.cloud_spec_json}
+      ##########
+
+      #######################
+      Holder Create ECS Task Definition:
+        Type: "Task"
+        # Resource: "function:mast-lambda"
+        Parameters:
+          {
+            "step_name": "create_ecs_task_definition",
+            "cloud_spec_json.$": "$.standby_cloud_spec.cloud_spec_json",
+            "output_file": "/tmp/deployment.json",
+            "cloud_spec_url": "https://raw.githubusercontent.com/yahooo",
+          }
+        ResultPath: "ecs_task_definition"
+        Next: "Create ELB Target Groups"
+
+      Create ELB Target Groups:
+        Type: "Task"
+        # Resource: "function:mast-lambda"
+        Parameters:
+          {
+            "step_name": "create_elb_target_groups",
+            "cloud_spec_json.$": "$.standby_cloud_spec.cloud_spec_json",
+          }
+        # ResultPath: "elb_target_groups"
+        Next: "Create or Update ELB Listeners"
+      Create or Update ELB Listeners:
+        Type: "Task"
+        # Resource: "function:mast-lambda"
+        Parameters:
+          {
+            "step_name": "update_elb_listeners",
+            "cloud_spec_json.$": "$.standby_cloud_spec.cloud_spec_json",
+          }
+        # ResultPath: "elb_listener_rules"
+        Next: "Update ELB Listener Rules"
+      Update ELB Listener Rules:
+        Type: "Task"
+        # Resource: "function:mast-lambda"
+        Parameters:
+          {
+            "step_name": "update_elb_listener_rules",
+            "cloud_spec_json.$": "$.standby_cloud_spec.cloud_spec_json",
+          }
+        # ResultPath: "elb_listener_rules"
+        Next: "Create ECS Service"
+
+      Create ECS Service:
+        Type: "Task"
+        # Resource: "function:mast-lambda"
+        Parameters:
+          {
+            "step_name": "create_ecs_service",
+            "cloud_spec_json.$": "$.standby_cloud_spec.cloud_spec_json",
+            "poll_interval": 10,
+            "task_definition_arn.$": "$.ecs_task_definition.task_definition_arn",
+            "output_file": "/tmp/deployment.json",
+          }
+        # ResultPath: "ecs_service"
+        End: true,
+  rollback:
+    StartAt: "Validate Cloud Spec"
+    States:
+      Validate Cloud Spec:
+        Type: "Task"
+        # Resource: "function:mast-lambda"
+        Command: "docker run mast kjaslkdjflajsdlfajdlfk"
+        Parameters:
+          {
+            "step_name": "validate_cloud_spec",
+            "cloud_spec_json.$": "$.cloud_spec_json",
+            "context": ["prestaging", "standby"],
+            "output_file": "/tmp/deployment.json",
+          }
+        ResultPath: "standby_cloud_spec"
+        Next: "Create ECS Task Definition"
+
+      Create ECS Task Definition:
+        Type: "Task"
+        # Resource: "function:mast-lambda"
+        Parameters:
+          {
+            "step_name": "create_ecs_task_definition",
+            "cloud_spec_json.$": "$.standby_cloud_spec.cloud_spec_json",
+            "output_file": "/tmp/deployment.json",
+            "cloud_spec_url": "https://raw.githubusercontent.com/yahooo",
+          }
+        ResultPath: "ecs_task_definition"
+        Next: "Create ELB Target Groups"
+
+      Create ELB Target Groups:
+        Type: "Task"
+        # Resource: "function:mast-lambda"
+        Parameters:
+          {
+            "step_name": "create_elb_target_groups",
+            "cloud_spec_json.$": "$.standby_cloud_spec.cloud_spec_json",
+          }
+        # ResultPath: "elb_target_groups"
+        Next: "Create or Update ELB Listeners"
+      Create or Update ELB Listeners:
+        Type: "Task"
+        # Resource: "function:mast-lambda"
+        Parameters:
+          {
+            "step_name": "update_elb_listeners",
+            "cloud_spec_json.$": "$.standby_cloud_spec.cloud_spec_json",
+          }
+        # ResultPath: "elb_listener_rules"
+        Next: "Update ELB Listener Rules"
+      Update ELB Listener Rules:
+        Type: "Task"
+        # Resource: "function:mast-lambda"
+        Parameters:
+          {
+            "step_name": "update_elb_listener_rules",
+            "cloud_spec_json.$": "$.standby_cloud_spec.cloud_spec_json",
+          }
+        # ResultPath: "elb_listener_rules"
+        Next: "Create ECS Service"
+
+      Create ECS Service:
+        Type: "Task"
+        # Resource: "function:mast-lambda"
+        Parameters:
+          {
+            "step_name": "create_ecs_service",
+            "cloud_spec_json.$": "$.standby_cloud_spec.cloud_spec_json",
+            "poll_interval": 10,
+            "task_definition_arn.$": "$.ecs_task_definition.task_definition_arn",
+            "output_file": "/tmp/deployment.json",
+          }
+        # ResultPath: "ecs_service"
+        End: true,

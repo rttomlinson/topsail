@@ -1,0 +1,26 @@
+type: SHELL_SCRIPT
+outputVars: service_spec_json
+scriptString: |
+  set -e -o pipefail
+
+  export OUTPUT_FILE=$(mktemp)
+  trap "rm -f $OUTPUT_FILE" 0
+
+  input_service_spec_json=$(cat <<'__END_SERVICE_SPEC__'
+  ${service_spec}
+  __END_SERVICE_SPEC__
+  )
+
+  docker_run mast validate_service_spec \
+      --environment '${environment}' \
+      --service-spec-json "$input_service_spec_json" \
+      --output-file "$OUTPUT_FILE"
+
+  export service_spec_json=$(cat "$OUTPUT_FILE")
+scriptType: BASH
+timeoutMillis: 30000
+variables:
+  - name: environment
+    value: ${workflow.variables.environment}
+  - name: service_spec
+    value: ${context.meta.service_spec}

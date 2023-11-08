@@ -123,15 +123,15 @@ aws:
           - protocol: HTTP
             port: 8080
 
-            # Listener rule configuration for this service. In Clari standard blue/green deploys
+            # Listener rule configuration for this service. In Foo standard blue/green deploys
             # we are creating a new ECS service for each deployment, and add a new rule or modify
             # existing standby listener rule to match requests directed to a testing hostname
-            # that is defined per environment, e.g. example1.clari.com, and we forward the matching
+            # that is defined per environment, e.g. example1.foo.com, and we forward the matching
             # traffic to the target group configured in the section below to provide for automated
             # and manual testing.
             # After we are satisfied with test results, the traffic is switched to the same target group
             # using the active rule configuration which matches requests directed to the active hostname,
-            # e.g. app.clari.com.
+            # e.g. app.foo.com.
             rules:
               - placement: end
 
@@ -378,9 +378,9 @@ verification:
     # the relevant content-type header.
     headers:
       prestaging:
-        - "host: example1.prestaging.clari.com"
+        - "host: example1.prestaging.foo.com"
       staging:
-        - "host: example1.staging.clari.com"
+        - "host: example1.staging.foo.com"
 
     # Request body for methods that need it. Ignored for GET and HEAD.
     # To include JSON, enclose it in single quotes.

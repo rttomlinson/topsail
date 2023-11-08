@@ -1,0 +1,1073 @@
+harnessApiVersion: '1.0'
+type: STANDARD
+description: Deploy and release flow for a service
+phases:
+- type: ECS
+  computeProviderName: frontend-production
+  daemonSet: false
+  name: Phase 1
+  phaseSteps:
+  - type: CONTAINER_SETUP
+    failureStrategies:
+    - failureTypes:
+      - APPLICATION_ERROR
+      repairActionCode: ABORT_WORKFLOW_EXECUTION
+      retryCount: 0
+      specificSteps:
+      - Get current active service spec from cluster tag and image name
+      - check_if_service_and_target_groups_already_created
+    name: Set up new ECS service
+    steps:
+    - type: BARRIER
+      name: Synchronize with clari-graphql before deployment
+      properties:
+        identifier: synchronize-before-deployment
+        timeoutMillis: 10800000
+    - type: SHELL_SCRIPT
+      name: Actualize service spec for environment
+      properties:
+        commandPath: null
+        connectionAttributeName: null
+        delegateSelectors:
+        - ${workflow.variables.Delegate_Selector}
+        executeOnDelegate: true
+        host: null
+        includeInfraSelectors: false
+        publishAsVar: true
+        sshKeyRefName: null
+        sweepingOutputName: meta
+        sweepingOutputScope: WORKFLOW
+        templateExpressions: null
+        timeoutMillis: 30000
+      templateUri: atokarev/AWS/Validate master service spec:latest
+      templateVariables:
+      - name: environment
+        value: ${workflow.variables.environment}
+      - name: service_spec
+        value: ${context.nexus.service_spec}
+    - type: SHELL_SCRIPT
+      name: Get current active service spec from cluster tag and image name
+      properties:
+        commandPath: null
+        connectionAttributeName: null
+        delegateSelectors:
+        - ${workflow.variables.Delegate_Selector}
+        executeOnDelegate: true
+        host: null
+        includeInfraSelectors: false
+        publishAsVar: true
+        sshKeyRefName: null
+        sweepingOutputName: current_active_service
+        sweepingOutputScope: WORKFLOW
+        templateExpressions: null
+        timeoutMillis: 600000
+      templateUri: atokarev/get_service_spec_from_active_service_cluster_tag:latest
+      templateVariables:
+      - name: environment
+        value: ${workflow.variables.environment}
+      - name: service_spec
+        value: ${context.meta.service_spec_json}
+      - name: docker_username
+        value: ${app.defaults.DOCKER_HUB_USERNAME}
+      - name: docker_password
+        value: ${secrets.getValue("Docker Hub password for harnessclari")}
+      - name: artifactory_docker_registry_fqdn
+        value: ${app.defaults.ARTIFACTORY_DOCKER_REGISTRY_FQDN}
+      - name: artifactory_docker_registry_token
+        value: ${secrets.getValue("Artifactory token")}
+      - name: github_token
+        value: ${secrets.getValue("Github auth token for clarius-deploy")}
+    - type: SHELL_SCRIPT
+      name: check_if_service_and_target_groups_already_created
+      properties:
+        commandPath: null
+        connectionAttributeName: null
+        delegateSelectors:
+        - ${workflow.variables.Delegate_Selector}
+        executeOnDelegate: true
+        host: null
+        includeInfraSelectors: false
+        publishAsVar: false
+        sshKeyRefName: null
+        sweepingOutputName: null
+        sweepingOutputScope: null
+        templateExpressions: null
+        timeoutMillis: 600000
+      templateUri: atokarev/check_if_service_and_target_groups_already_created:latest
+      templateVariables:
+      - name: environment
+        value: ${workflow.variables.environment}
+      - name: service_spec
+        value: ${context.meta.service_spec_json}
+    - type: BARRIER
+      name: Sync with clari-graphql before creating resources
+      properties:
+        identifier: synchronize-before-creating-any-resources
+        templateUuid: null
+        templateVariables: null
+        templateVersion: null
+        timeoutMillis: 600000
+    - type: SHELL_SCRIPT
+      name: Create new deployment ECS task definition
+      properties:
+        commandPath: null
+        connectionAttributeName: null
+        delegateSelectors:
+        - ${workflow.variables.Delegate_Selector}
+        executeOnDelegate: true
+        host: null
+        includeInfraSelectors: false
+        publishAsVar: true
+        sshKeyRefName: null
+        sweepingOutputName: task_definition
+        sweepingOutputScope: WORKFLOW
+        templateExpressions: null
+        timeoutMillis: 600000
+      templateUri: atokarev/AWS/Create ECS task definition:latest
+      templateVariables:
+      - name: environment
+        value: ${workflow.variables.environment}
+      - name: service_spec
+        value: ${context.meta.service_spec_json}
+      - name: service_spec_url
+        value: ${context.nexus.service_spec_url}
+    - type: SHELL_SCRIPT
+      name: Create new deployment ELB target groups
+      properties:
+        commandPath: null
+        connectionAttributeName: null
+        delegateSelectors:
+        - ${workflow.variables.Delegate_Selector}
+        executeOnDelegate: true
+        host: null
+        includeInfraSelectors: false
+        publishAsVar: false
+        sshKeyRefName: null
+        sweepingOutputName: null
+        sweepingOutputScope: null
+        templateExpressions: null
+        timeoutMillis: 600000
+      templateUri: atokarev/AWS/Create ELB target groups:latest
+      templateVariables:
+      - name: environment
+        value: ${workflow.variables.environment}
+      - name: service_spec
+        value: ${context.meta.service_spec_json}
+    - type: SHELL_SCRIPT
+      name: Update Standby ELB listener rules
+      properties:
+        commandPath: null
+        connectionAttributeName: null
+        delegateSelectors:
+        - ${workflow.variables.Delegate_Selector}
+        executeOnDelegate: true
+        host: null
+        includeInfraSelectors: false
+        publishAsVar: false
+        sshKeyRefName: null
+        sweepingOutputName: null
+        sweepingOutputScope: null
+        templateExpressions: null
+        timeoutMillis: 600000
+      templateUri: atokarev/AWS/Update ELB listener rules:latest
+      templateVariables:
+      - name: environment
+        value: ${workflow.variables.environment}
+      - name: rule_role
+        value: standby
+      - name: service_spec
+        value: ${context.meta.service_spec_json}
+    - type: SHELL_SCRIPT
+      name: Create new deployment ECS service
+      properties:
+        commandPath: null
+        connectionAttributeName: null
+        delegateSelectors:
+        - ${workflow.variables.Delegate_Selector}
+        executeOnDelegate: true
+        host: null
+        includeInfraSelectors: false
+        publishAsVar: true
+        sshKeyRefName: null
+        sweepingOutputName: created_service
+        sweepingOutputScope: WORKFLOW
+        templateExpressions: null
+        timeoutMillis: 600000
+      templateUri: atokarev/AWS/Create ECS service:latest
+      templateVariables:
+      - name: environment
+        value: ${workflow.variables.environment}
+      - name: service_spec
+        value: ${context.meta.service_spec_json}
+      - name: task_definition_arn
+        value: ${context.task_definition.task_definition_arn}
+      - name: service_overrides
+        value: '{"desiredCount":0}'
+    stepsInParallel: false
+  - type: CONTAINER_DEPLOY
+    name: Deploy Containers
+    steps:
+    - type: BARRIER
+      name: Synchronize after all resources have been created
+      properties:
+        identifier: synchronize-after-all-resources-have-been-created
+        timeoutMillis: 900000
+    - type: SHELL_SCRIPT
+      name: Scale ECS service to 1 task
+      properties:
+        commandPath: null
+        connectionAttributeName: null
+        delegateSelectors:
+        - ${workflow.variables.Delegate_Selector}
+        executeOnDelegate: true
+        host: null
+        includeInfraSelectors: false
+        publishAsVar: false
+        sshKeyRefName: null
+        sweepingOutputName: null
+        sweepingOutputScope: null
+        templateExpressions: null
+        timeoutMillis: 600000
+      templateUri: atokarev/AWS/Scale ECS service:latest
+      templateVariables:
+      - name: environment
+        value: ${workflow.variables.environment}
+      - name: service_spec
+        value: ${context.meta.service_spec_json}
+      - name: desired_task_count
+        value: '1'
+      - name: current_active_service_spec
+        value: ${''}
+    - type: BARRIER
+      name: Synchronize after scaling ECS service to 1 task
+      properties:
+        identifier: synchronize-after-scaling-ecs-service-to-1-task
+        templateUuid: null
+        templateVariables: null
+        templateVersion: null
+        timeoutMillis: 1800000
+    stepsInParallel: false
+  - type: VERIFY_SERVICE
+    failureStrategies:
+    - failureTypes:
+      - APPLICATION_ERROR
+      repairActionCode: IGNORE
+      retryCount: 0
+      specificSteps:
+      - Post Slack notification
+    name: Verify Standby Deployment
+    stepSkipStrategies:
+    - assertionExpression: ${workflow.variables.environment} != "production"
+      scope: SPECIFIC_STEPS
+      steps:
+      - Post Slack notification
+    - assertionExpression: ${workflow.variables.environment} != 'staging'
+      scope: SPECIFIC_STEPS
+      steps:
+      - Run smoke tests on standby environment
+    - assertionExpression: ${workflow.variables.environment} != "production"
+      scope: SPECIFIC_STEPS
+      steps:
+      - Approve Nexus for Release
+    steps:
+    - type: SHELL_SCRIPT
+      name: Verify deployed standby service
+      properties:
+        commandPath: null
+        connectionAttributeName: null
+        delegateSelectors:
+        - ${workflow.variables.Delegate_Selector}
+        executeOnDelegate: true
+        host: null
+        includeInfraSelectors: false
+        publishAsVar: false
+        sshKeyRefName: null
+        sweepingOutputName: null
+        sweepingOutputScope: null
+        templateExpressions: null
+        timeoutMillis: 300000
+      templateUri: atokarev/Service verifications/Verify deployed service:latest
+      templateVariables:
+      - name: environment
+        value: ${workflow.variables.environment}
+      - name: service_spec
+        value: ${context.meta.service_spec_json}
+    - type: BARRIER
+      name: Synchronize with graphql standby deployment
+      properties:
+        identifier: synchronize-with-standby-verification-step
+        templateUuid: null
+        templateVariables: null
+        templateVersion: null
+        timeoutMillis: 900000
+    - type: SHELL_SCRIPT
+      name: Run smoke tests on standby environment
+      properties:
+        commandPath: null
+        connectionAttributeName: null
+        delegateSelectors:
+        - ${workflow.variables.Delegate_Selector}
+        executeOnDelegate: true
+        host: null
+        includeInfraSelectors: false
+        publishAsVar: false
+        sshKeyRefName: null
+        sweepingOutputName: null
+        sweepingOutputScope: null
+        templateExpressions: null
+        timeoutMillis: 1200000
+      templateUri: atokarev/AWS/Run test from service spec:latest
+      templateVariables:
+      - name: environment
+        value: ${workflow.variables.environment}
+      - name: service_spec
+        value: ${context.meta.service_spec_json}
+      - name: test_name
+        value: standbySmokeTest
+    - type: SHELL_SCRIPT
+      name: Post Slack notification
+      properties:
+        commandPath: null
+        connectionAttributeName: null
+        delegateSelectors:
+        - ${workflow.variables.Delegate_Selector}
+        executeOnDelegate: true
+        host: null
+        includeInfraSelectors: false
+        publishAsVar: false
+        sshKeyRefName: null
+        sweepingOutputName: null
+        sweepingOutputScope: null
+        templateExpressions: null
+        timeoutMillis: 600000
+      templateUri: atokarev/Integrations/Post Slack approval notification:latest
+      templateVariables:
+      - name: environment
+        value: ${workflow.variables.environment}
+      - name: standby_url
+        value: https://app-test.clari.com
+      - name: harness_api_key
+        value: ${secrets.getValue("Harness API key for Jenkins")}
+      - name: notification_user_group_name
+        value: ${workflow.variables.Approval_User_Group}
+      - name: build_log_json
+        value: ${context.nexus.build_changelog}
+      - name: message_template
+        value: ${artifact.label.get("approval_msg_1")}
+      - name: active_url
+    - type: APPROVAL
+      name: Approve Nexus for Release
+      properties:
+        approvalStateType: USER_GROUP
+        templateExpressions: null
+        templateUuid: null
+        templateVariables: null
+        templateVersion: null
+        timeoutMillis: 86400000
+        userGroupAsExpression: true
+        userGroupExpression: ${workflow.variables.Approval_User_Group}
+        userGroupNames: null
+    stepsInParallel: false
+  - type: ECS_UPDATE_LISTENER_BG
+    failureStrategies:
+    - failureTypes:
+      - APPLICATION_ERROR
+      repairActionCode: IGNORE
+      retryCount: 0
+      specificSteps:
+      - Post Slack notification
+    name: Swap Target Groups
+    stepSkipStrategies:
+    - assertionExpression: ${workflow.variables.environment} != 'production'
+      scope: SPECIFIC_STEPS
+      steps:
+      - Post Slack notification
+    steps:
+    - type: BARRIER
+      name: Synchronize with graphql before task scaling
+      properties:
+        identifier: synchronize-before-active-scaling-step
+        templateUuid: null
+        templateVariables: null
+        templateVersion: null
+        timeoutMillis: 86400000
+    - type: SHELL_SCRIPT
+      name: Scale new deployment ECS service tasks to service_spec count
+      properties:
+        commandPath: null
+        connectionAttributeName: null
+        delegateSelectors:
+        - ${workflow.variables.Delegate_Selector}
+        executeOnDelegate: true
+        host: null
+        includeInfraSelectors: false
+        publishAsVar: false
+        sshKeyRefName: null
+        sweepingOutputName: null
+        sweepingOutputScope: null
+        templateExpressions: null
+        timeoutMillis: 600000
+      templateUri: atokarev/AWS/Scale ECS service:latest
+      templateVariables:
+      - name: environment
+        value: ${workflow.variables.environment}
+      - name: service_spec
+        value: ${context.meta.service_spec_json}
+      - name: desired_task_count
+      - name: current_active_service_spec
+        value: ${context.current_active_service.service_spec}
+    - type: SHELL_SCRIPT
+      name: register_new_active_service_as_scalable_target_and_attach_scaling_policy
+      properties:
+        commandPath: null
+        connectionAttributeName: null
+        delegateSelectors:
+        - ${workflow.variables.Delegate_Selector}
+        executeOnDelegate: true
+        host: null
+        includeInfraSelectors: false
+        publishAsVar: false
+        sshKeyRefName: null
+        sweepingOutputName: null
+        sweepingOutputScope: null
+        templateExpressions: null
+        timeoutMillis: 600000
+      templateUri: atokarev/register_service_as_scalable_target_and_attach_scaling_policy:latest
+      templateVariables:
+      - name: environment
+        value: ${workflow.variables.environment}
+      - name: service_spec
+        value: ${context.meta.service_spec_json}
+    - type: BARRIER
+      name: Synchronize with graphql before swap to active
+      properties:
+        identifier: frontend-services-sync-before-swap-to-active
+        templateUuid: null
+        templateVariables: null
+        templateVersion: null
+        timeoutMillis: 900000
+    - type: SHELL_SCRIPT
+      name: Add active tag to ECS service and target groups
+      properties:
+        commandPath: null
+        connectionAttributeName: null
+        delegateSelectors:
+        - ${workflow.variables.Delegate_Selector}
+        executeOnDelegate: true
+        host: null
+        includeInfraSelectors: false
+        publishAsVar: false
+        sshKeyRefName: null
+        sweepingOutputName: null
+        sweepingOutputScope: null
+        templateExpressions: null
+        timeoutMillis: 600000
+      templateUri: atokarev/AWS/Add active tag to ECS service and target groups:latest
+      templateVariables:
+      - name: environment
+        value: ${workflow.variables.environment}
+      - name: service_spec
+        value: ${context.meta.service_spec_json}
+    - type: SHELL_SCRIPT
+      name: Update Active ELB listener rules
+      properties:
+        commandPath: null
+        connectionAttributeName: null
+        delegateSelectors:
+        - ${workflow.variables.Delegate_Selector}
+        executeOnDelegate: true
+        host: null
+        includeInfraSelectors: false
+        publishAsVar: false
+        sshKeyRefName: null
+        sweepingOutputName: null
+        sweepingOutputScope: null
+        templateExpressions: null
+        timeoutMillis: 600000
+      templateUri: atokarev/AWS/Update ELB listener rules:latest
+      templateVariables:
+      - name: environment
+        value: ${workflow.variables.environment}
+      - name: rule_role
+        value: active
+      - name: service_spec
+        value: ${context.meta.service_spec_json}
+    - type: SHELL_SCRIPT
+      name: update_current_active_service_tag_on_cluster
+      properties:
+        commandPath: null
+        connectionAttributeName: null
+        delegateSelectors:
+        - ${workflow.variables.Delegate_Selector}
+        executeOnDelegate: true
+        host: null
+        includeInfraSelectors: false
+        publishAsVar: false
+        sshKeyRefName: null
+        sweepingOutputName: null
+        sweepingOutputScope: null
+        templateExpressions: null
+        timeoutMillis: 600000
+      templateUri: atokarev/update_current_active_service_tag_on_cluster:latest
+      templateVariables:
+      - name: environment
+        value: ${workflow.variables.environment}
+      - name: service_spec
+        value: ${context.meta.service_spec_json}
+    - type: SHELL_SCRIPT
+      name: Post Slack notification
+      properties:
+        commandPath: null
+        connectionAttributeName: null
+        delegateSelectors:
+        - ${workflow.variables.Delegate_Selector}
+        executeOnDelegate: true
+        host: null
+        includeInfraSelectors: false
+        publishAsVar: false
+        sshKeyRefName: null
+        sweepingOutputName: null
+        sweepingOutputScope: null
+        templateExpressions: null
+        timeoutMillis: 600000
+      templateUri: atokarev/Integrations/Post Slack approval notification:latest
+      templateVariables:
+      - name: environment
+        value: ${workflow.variables.environment}
+      - name: standby_url
+        value: https://app-test.clari.com
+      - name: harness_api_key
+        value: ${secrets.getValue("Harness API key for Jenkins")}
+      - name: notification_user_group_name
+        value: ${workflow.variables.Approval_User_Group}
+      - name: build_log_json
+        value: ${context.nexus.build_changelog}
+      - name: message_template
+        value: ${artifact.label.get("approval_msg_2")}
+      - name: active_url
+        value: https://app.clari.com
+    stepsInParallel: false
+  - type: VERIFY_SERVICE
+    name: Verify Active Service
+    stepSkipStrategies:
+    - assertionExpression: ${workflow.variables.environment} != 'test'
+      scope: SPECIFIC_STEPS
+      steps:
+      - Fail
+    - assertionExpression: ${workflow.variables.environment} != 'production'
+      scope: SPECIFIC_STEPS
+      steps:
+      - Nexus Release Looks Good
+    - assertionExpression: ${workflow.variables.environment} != 'disabled because unreliable'
+      scope: SPECIFIC_STEPS
+      steps:
+      - Run smoke tests on active environment
+    steps:
+    - type: APPROVAL
+      name: Nexus Release Looks Good
+      properties:
+        approvalStateType: USER_GROUP
+        templateExpressions: null
+        templateUuid: null
+        templateVariables: null
+        templateVersion: null
+        timeoutMillis: 7200000
+        userGroupAsExpression: true
+        userGroupExpression: ${workflow.variables.Approval_User_Group}
+        userGroupNames: null
+    - type: SHELL_SCRIPT
+      name: Run smoke tests on active environment
+      properties:
+        commandPath: null
+        connectionAttributeName: null
+        delegateSelectors:
+        - ${workflow.variables.Delegate_Selector}
+        executeOnDelegate: true
+        host: null
+        includeInfraSelectors: false
+        publishAsVar: false
+        sshKeyRefName: null
+        sweepingOutputName: null
+        sweepingOutputScope: null
+        templateExpressions: null
+        timeoutMillis: 1200000
+      templateUri: atokarev/AWS/Run test from service spec:latest
+      templateVariables:
+      - name: environment
+        value: ${workflow.variables.environment}
+      - name: service_spec
+        value: ${context.meta.service_spec_json}
+      - name: test_name
+        value: activeSmokeTest
+    - type: SHELL_SCRIPT
+      name: Fail
+      properties:
+        commandPath: null
+        connectionAttributeName: null
+        delegateSelectors:
+        - ${workflow.variables.Delegate_Selector}
+        executeOnDelegate: true
+        host: null
+        includeInfraSelectors: false
+        outputVars: ''
+        publishAsVar: false
+        scriptString: exit 1
+        scriptType: BASH
+        sshKeyRefName: null
+        sweepingOutputName: null
+        sweepingOutputScope: null
+        templateExpressions: null
+        templateVariables: ''
+        timeoutMillis: 60000
+    stepsInParallel: true
+  - type: WRAP_UP
+    failureStrategies:
+    - actionAfterTimeout: IGNORE
+      failureTypes:
+      - APPLICATION_ERROR
+      manualInterventionTimeout: 3600000
+      repairActionCode: MANUAL_INTERVENTION
+      retryCount: 0
+    name: Wrap Up
+    stepSkipStrategies:
+    - assertionExpression: ${workflow.variables.environment} == 'production'
+      scope: SPECIFIC_STEPS
+      steps:
+      - Post Slack release notification
+    steps:
+    - type: SHELL_SCRIPT
+      name: Post Slack release notification
+      properties:
+        commandPath: null
+        connectionAttributeName: null
+        delegateSelectors:
+        - ${workflow.variables.Delegate_Selector}
+        executeOnDelegate: true
+        host: null
+        includeInfraSelectors: false
+        publishAsVar: false
+        sshKeyRefName: null
+        sweepingOutputName: null
+        sweepingOutputScope: null
+        templateExpressions: null
+        timeoutMillis: 600000
+      templateUri: atokarev/Integrations/Post Slack approval notification:latest
+      templateVariables:
+      - name: environment
+        value: ${workflow.variables.environment}
+      - name: standby_url
+        value: ${''}
+      - name: harness_api_key
+        value: ${secrets.getValue("Harness API key for Jenkins")}
+      - name: notification_user_group_name
+        value: ${workflow.variables.Release_Notification_Group}
+      - name: build_log_json
+        value: ${context.nexus.build_changelog}
+      - name: message_template
+        value: ${artifact.label.get("release_notification_msg")}
+      - name: active_url
+        value: ${''}
+    - type: BARRIER
+      name: Synchronize Final approvals before clean-up
+      properties:
+        identifier: synchronize-final-approvals-before-clean-up
+        timeoutMillis: 86400000
+    - type: SHELL_SCRIPT
+      name: Delete Standby ELB listener rules
+      properties:
+        commandPath: null
+        connectionAttributeName: null
+        delegateSelectors:
+        - ${workflow.variables.Delegate_Selector}
+        executeOnDelegate: true
+        host: null
+        includeInfraSelectors: false
+        publishAsVar: false
+        sshKeyRefName: null
+        sweepingOutputName: null
+        sweepingOutputScope: null
+        templateExpressions: null
+        timeoutMillis: 1800000
+      templateUri: atokarev/AWS/Delete ELB listener rules:latest
+      templateVariables:
+      - name: environment
+        value: ${workflow.variables.environment}
+      - name: service_spec
+        value: ${context.meta.service_spec_json}
+      - name: rule_role
+        value: standby
+    - type: SHELL_SCRIPT
+      name: deregister_previous_active_service_as_scalable_target_and_detach_scaling_policy
+      properties:
+        commandPath: null
+        connectionAttributeName: null
+        delegateSelectors:
+        - ${workflow.variables.Delegate_Selector}
+        executeOnDelegate: true
+        host: null
+        includeInfraSelectors: false
+        publishAsVar: false
+        sshKeyRefName: null
+        sweepingOutputName: null
+        sweepingOutputScope: null
+        templateExpressions: null
+        timeoutMillis: 1800000
+      templateUri: atokarev/deregister_service_as_scalable_target_and_delete_scaling_policy:latest
+      templateVariables:
+      - name: environment
+        value: ${workflow.variables.environment}
+      - name: service_spec
+        value: ${context.current_active_service.service_spec}
+    - type: SHELL_SCRIPT
+      name: Scale previously active ECS service to 0 tasks
+      properties:
+        commandPath: null
+        connectionAttributeName: null
+        delegateSelectors:
+        - ${workflow.variables.Delegate_Selector}
+        executeOnDelegate: true
+        host: null
+        includeInfraSelectors: false
+        publishAsVar: false
+        sshKeyRefName: null
+        sweepingOutputName: null
+        sweepingOutputScope: null
+        templateExpressions: null
+        timeoutMillis: 1800000
+      templateUri: atokarev/AWS/Scale ECS service:latest
+      templateVariables:
+      - name: environment
+        value: ${workflow.variables.environment}
+      - name: service_spec
+        value: ${context.current_active_service.service_spec}
+      - name: desired_task_count
+        value: '0'
+      - name: current_active_service_spec
+        value: ${''}
+    - type: SHELL_SCRIPT
+      name: Delete previously active ECS service
+      properties:
+        commandPath: null
+        connectionAttributeName: null
+        delegateSelectors:
+        - ${workflow.variables.Delegate_Selector}
+        executeOnDelegate: true
+        host: null
+        includeInfraSelectors: false
+        publishAsVar: false
+        sshKeyRefName: null
+        sweepingOutputName: null
+        sweepingOutputScope: null
+        templateExpressions: null
+        timeoutMillis: 1800000
+      templateUri: atokarev/AWS/Delete ECS service:latest
+      templateVariables:
+      - name: environment
+        value: ${workflow.variables.environment}
+      - name: service_spec
+        value: ${context.current_active_service.service_spec}
+    - type: SHELL_SCRIPT
+      name: Delete previously active ELB Target groups
+      properties:
+        commandPath: null
+        connectionAttributeName: null
+        delegateSelectors:
+        - ${workflow.variables.Delegate_Selector}
+        executeOnDelegate: true
+        host: null
+        includeInfraSelectors: false
+        publishAsVar: false
+        sshKeyRefName: null
+        sweepingOutputName: null
+        sweepingOutputScope: null
+        templateExpressions: null
+        timeoutMillis: 1800000
+      templateUri: atokarev/Delete ELB Target groups from spec:latest
+      templateVariables:
+      - name: environment
+        value: ${workflow.variables.environment}
+      - name: service_spec
+        value: ${context.current_active_service.service_spec}
+    - type: BARRIER
+      name: Synchronize after clean-up
+      properties:
+        identifier: synchronize-after-clean-up
+        templateUuid: null
+        templateVariables: null
+        templateVersion: null
+        timeoutMillis: 1814400000
+    stepsInParallel: false
+  provisionNodes: false
+  serviceName: clari-nexus
+  statefulSet: false
+  templateExpressions:
+  - expression: ${InfraDefinition_ECS}
+    fieldName: infraDefinitionId
+    metadata:
+    - name: relatedField
+    - name: entityType
+      value: INFRASTRUCTURE_DEFINITION
+rollbackPhases:
+- type: ECS
+  computeProviderName: frontend-production
+  daemonSet: false
+  name: Rollback Phase 1
+  phaseNameForRollback: Phase 1
+  phaseSteps:
+  - type: ECS_UPDATE_LISTENER_BG
+    name: Swap Target Groups
+    phaseStepNameForRollback: Deploy Containers
+    statusForRollback: SUCCESS
+    steps:
+    - type: SHELL_SCRIPT
+      name: Restore previously active ELB listener rules
+      properties:
+        commandPath: null
+        connectionAttributeName: null
+        delegateSelectors:
+        - ${workflow.variables.Delegate_Selector}
+        executeOnDelegate: true
+        host: null
+        includeInfraSelectors: false
+        publishAsVar: false
+        sshKeyRefName: null
+        sweepingOutputName: null
+        sweepingOutputScope: null
+        templateExpressions: null
+        timeoutMillis: 600000
+      templateUri: atokarev/AWS/Update ELB listener rules:latest
+      templateVariables:
+      - name: environment
+        value: ${workflow.variables.environment}
+      - name: rule_role
+        value: active
+      - name: service_spec
+        value: ${context.current_active_service.service_spec}
+    - type: SHELL_SCRIPT
+      name: update_current_active_service_tag_on_cluster
+      properties:
+        commandPath: null
+        connectionAttributeName: null
+        delegateSelectors:
+        - ${workflow.variables.Delegate_Selector}
+        executeOnDelegate: true
+        host: null
+        includeInfraSelectors: false
+        publishAsVar: false
+        sshKeyRefName: null
+        sweepingOutputName: null
+        sweepingOutputScope: null
+        templateExpressions: null
+        timeoutMillis: 600000
+      templateUri: atokarev/update_current_active_service_tag_on_cluster:latest
+      templateVariables:
+      - name: environment
+        value: ${workflow.variables.environment}
+      - name: service_spec
+        value: ${context.current_active_service.service_spec}
+    stepsInParallel: false
+  - type: CONTAINER_DEPLOY
+    name: Deploy Containers
+    phaseStepNameForRollback: Deploy Containers
+    statusForRollback: SUCCESS
+    stepsInParallel: false
+  - type: VERIFY_SERVICE
+    name: Verify Service
+    phaseStepNameForRollback: Deploy Containers
+    statusForRollback: SUCCESS
+    stepsInParallel: false
+  - type: WRAP_UP
+    failureStrategies:
+    - failureTypes:
+      - APPLICATION_ERROR
+      repairActionCode: IGNORE
+      retryCount: 0
+      specificSteps:
+      - Scale new deployment ECS service to 0 tasks
+      - Delete new deployment standby ELB listener rules
+      - Delete new deployment ELB Target groups
+      - Delete new deployment ECS service
+    name: Wrap Up
+    steps:
+    - type: SHELL_SCRIPT
+      name: deregister_deployment_service_as_scalable_target_and_detach_scaling_policy
+      properties:
+        commandPath: null
+        connectionAttributeName: null
+        delegateSelectors:
+        - ${workflow.variables.Delegate_Selector}
+        executeOnDelegate: true
+        host: null
+        includeInfraSelectors: false
+        publishAsVar: false
+        sshKeyRefName: null
+        sweepingOutputName: null
+        sweepingOutputScope: null
+        templateExpressions: null
+        timeoutMillis: 600000
+      templateUri: atokarev/deregister_service_as_scalable_target_and_delete_scaling_policy:latest
+      templateVariables:
+      - name: environment
+        value: ${workflow.variables.environment}
+      - name: service_spec
+        value: ${context.meta.service_spec_json}
+    - type: SHELL_SCRIPT
+      name: Scale new deployment ECS service to 0 tasks
+      properties:
+        commandPath: null
+        connectionAttributeName: null
+        delegateSelectors:
+        - ${workflow.variables.Delegate_Selector}
+        executeOnDelegate: true
+        host: null
+        includeInfraSelectors: false
+        publishAsVar: false
+        sshKeyRefName: null
+        sweepingOutputName: null
+        sweepingOutputScope: null
+        templateExpressions: null
+        timeoutMillis: 600000
+      templateUri: atokarev/AWS/Scale ECS service:latest
+      templateVariables:
+      - name: environment
+        value: ${workflow.variables.environment}
+      - name: service_spec
+        value: ${context.meta.service_spec_json}
+      - name: desired_task_count
+        value: '0'
+      - name: current_active_service_spec
+        value: ${''}
+    - type: SHELL_SCRIPT
+      name: Delete new deployment standby ELB listener rules
+      properties:
+        commandPath: null
+        connectionAttributeName: null
+        delegateSelectors:
+        - ${workflow.variables.Delegate_Selector}
+        executeOnDelegate: true
+        host: null
+        includeInfraSelectors: false
+        publishAsVar: false
+        sshKeyRefName: null
+        sweepingOutputName: null
+        sweepingOutputScope: null
+        templateExpressions: null
+        timeoutMillis: 600000
+      templateUri: atokarev/AWS/Delete ELB listener rules:latest
+      templateVariables:
+      - name: environment
+        value: ${workflow.variables.environment}
+      - name: service_spec
+        value: ${context.meta.service_spec_json}
+      - name: rule_role
+        value: standby
+    - type: SHELL_SCRIPT
+      name: Delete new deployment ELB Target groups
+      properties:
+        commandPath: null
+        connectionAttributeName: null
+        delegateSelectors:
+        - ${workflow.variables.Delegate_Selector}
+        executeOnDelegate: true
+        host: null
+        includeInfraSelectors: false
+        publishAsVar: false
+        sshKeyRefName: null
+        sweepingOutputName: null
+        sweepingOutputScope: null
+        templateExpressions: null
+        timeoutMillis: 600000
+      templateUri: atokarev/Delete ELB Target groups from spec:latest
+      templateVariables:
+      - name: environment
+        value: ${workflow.variables.environment}
+      - name: service_spec
+        value: ${context.meta.service_spec_json}
+    - type: SHELL_SCRIPT
+      name: Delete new deployment ECS service
+      properties:
+        commandPath: null
+        connectionAttributeName: null
+        delegateSelectors:
+        - ${workflow.variables.Delegate_Selector}
+        executeOnDelegate: true
+        host: null
+        includeInfraSelectors: false
+        publishAsVar: false
+        sshKeyRefName: null
+        sweepingOutputName: null
+        sweepingOutputScope: null
+        templateExpressions: null
+        timeoutMillis: 600000
+      templateUri: atokarev/AWS/Delete ECS service:latest
+      templateVariables:
+      - name: environment
+        value: ${workflow.variables.environment}
+      - name: service_spec
+        value: ${context.meta.service_spec_json}
+    - type: BARRIER
+      name: Synchronize after rollback
+      properties:
+        identifier: synchronize-after-rollback-wrapup
+        templateUuid: null
+        templateVariables: null
+        templateVersion: null
+        timeoutMillis: 1814400000
+    stepsInParallel: false
+  provisionNodes: false
+  serviceName: clari-nexus
+  statefulSet: false
+  templateExpressions:
+  - expression: ${InfraDefinition_ECS}
+    fieldName: infraDefinitionId
+    metadata:
+    - name: relatedField
+    - name: entityType
+      value: INFRASTRUCTURE_DEFINITION
+templateExpressions:
+- expression: ${Harness_Environment}
+  fieldName: envId
+  metadata:
+  - name: relatedField
+    value: ${InfraDefinition_ECS}
+  - name: entityType
+    value: ENVIRONMENT
+- expression: ${InfraDefinition_ECS}
+  fieldName: infraDefinitionId
+  metadata:
+  - name: relatedField
+  - name: entityType
+    value: INFRASTRUCTURE_DEFINITION
+templatized: true
+userVariables:
+- type: ENTITY
+  description: Variable for Environment entity
+  fixed: false
+  mandatory: true
+  name: Harness_Environment
+- type: ENTITY
+  description: Variable for Infrastructure Definition entity in Rollback Phase 1
+  fixed: false
+  mandatory: true
+  name: InfraDefinition_ECS
+- type: TEXT
+  fixed: false
+  mandatory: true
+  name: Delegate_Selector
+- type: TEXT
+  fixed: false
+  mandatory: true
+  name: Notification_User_Group
+- type: TEXT
+  fixed: false
+  mandatory: true
+  name: Approval_User_Group
+- type: TEXT
+  description: 'Clari environment name: prestaging, staging, production, etc. This is different from Harness_Environment and should correspond to the configured service_spec environments.'
+  fixed: false
+  mandatory: true
+  name: environment
+- type: TEXT
+  fixed: false
+  mandatory: true
+  name: Release_Notification_Group

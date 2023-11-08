@@ -413,12 +413,13 @@ deployment_spec:
         # Resource: "function:mast-lambda"
         # Parameters:
         ResultPath: "standby_cloud_spec"
-        Next: "Create ECS Task Definition"
+        End: true
+        # Next: "Create ECS Task Definition"
 
         type: SHELL_SCRIPT
         outputVars: standby_cloud_spec
         scriptString: |
-          set -e -o pipefail
+          # set -e -o pipefail
           # Expected env vars???
           # What about multiple contexts?
           # outputVars - which becomes the output file?

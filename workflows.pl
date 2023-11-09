@@ -27,6 +27,9 @@ sub handle {
     #     region => $aws_region,
     #     croak_on_error => 1,
     # );
+    my $HOME = $ENV{HOME};
+    system("mkdir -p ${HOME}/tmp") == 0
+        or die "system mkdir failed: $?";
     
     my $json_file = '/tmp/big.json';
     my $json_text = do { open my $fh, '<', $json_file; local $/; <$fh> };
@@ -48,7 +51,7 @@ sub handle {
     # say $first_step;
     my $cloud_spec_json = $perl_data->{state}->{cloud_spec_json};
     my $deployment_spec = $perl_data->{deployment_spec};
-    my $context = "prestaging";
+    my $context = '["prestaging", "active"]';
     $workflow_state{context} = $context;
     $workflow_state{cloud_spec_json} = $cloud_spec_json;
     my $step_script;
@@ -88,12 +91,22 @@ sub handle {
             } else {
                 $cloud_spec_json_arg = $arg->{value};
             }
+            $ENV{$arg->{name}} = $cloud_spec_json_arg;
             push(@script_args, $arg->{name} . "=" . "\'${cloud_spec_json_arg}\'" . "\n");
         }
         push(@script_args, "outputVars" . "=" . $output_var . "\n");
         
         my @p_args = ("help",);
-        system(join("", @script_args) . $step_script) == 0
+        my $filename = '/tmp/hello.pl';
+        open(FH, '>', $filename) or die $!;
+        print FH $step_script;
+        close(FH);
+
+        $ENV{TMPDIR} = "/tmp";
+        $ENV{OUTPUT_FILE} = "/tmp/${output_var}.json";
+
+        # print "Writing to file successfully!\n";
+        system("$^X $filename") == 0
             or die "system perl @p_args failed: $?";
         # system("docker", @p_args) == 0
         #     or die "system perl @p_args failed: $?";
@@ -107,10 +120,9 @@ sub handle {
             my($key, $value) = split(/=/, $line, 2);
             $workflow_state{$output_var}{$key} = $value;
         }
-        say Dumper(%workflow_state);
+        # say Dumper(%workflow_state);
         
         close $info;
-        $DB::single=1;
         if(defined $deployment_spec->{deploy}->{States}->{$step_name}->{Next}) {
             say "found next value $deployment_spec->{States}->{$step_name}->{Next}";
             $step_name = $deployment_spec->{deploy}->{States}->{$step_name}->{Next};
@@ -121,6 +133,9 @@ sub handle {
         }
 
     }
+
+    system("rm -rf ${HOME}/tmp") == 0
+        or die "system rm -rf failed: $?";
 
 }
 

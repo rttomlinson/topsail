@@ -413,43 +413,47 @@ deployment_spec:
         # Resource: "function:mast-lambda"
         # Parameters:
         ResultPath: "standby_cloud_spec"
-        End: true
-        # Next: "Create ECS Task Definition"
+        # End: true
+        Next: "Create ECS Task Definition"
 
-        type: SHELL_SCRIPT
         outputVars: standby_cloud_spec
         scriptString: |
-          # set -e -o pipefail
-          # Expected env vars???
-          # What about multiple contexts?
-          # outputVars - which becomes the output file?
-          # context
-          # cloud_spec_json
-          # HOME?
-          # TMPDIR?
+          #!/usr/bin/env perl
 
-          # TMPDIR probably needs to come from some system setting or using docker volumes
-          TMPDIR=/tmp
-          export OUTPUT_FILE="${outputVars}.json"
-          # Also need to figure out wtf HOME is for different systems - Probably needs to be set at the beginning also depending on the user
-          # Maybe we set the user for the entire execution or generate a new one. Seems messy
-          mkdir -p "${HOME}/tmp"
-          # trap "rm -f $OUTPUT_FILE" 0
+          use v5.030;
+          use strictures 2;
+          use warnings;
+          no warnings 'uninitialized';
+          use JSON::PP;
 
-          docker run -i --init --mount type=bind,source="${HOME}${TMPDIR}",target=$TMPDIR rttomlinson/mast validate_cloud_spec \
-              --context "${context}" \
-              --context "active" \
-              --output-file "$TMPDIR/$OUTPUT_FILE" \
-              --cloud-spec-json "${cloud_spec_json}"
 
-          # I need to somehow get the file out of this execution and into cloud_spec_json
-          # You have to look up the API and realize that this returns cloud_spec_json
-              
-          # will always return key-value pairs as strings
-          # turn this info json and encode it and set it as the output value to outputVars
+          #suffering from buffering
+          $|=1;
+          say "hello perl";
+          my $contexts = decode_json $ENV{context};
+          
+          my $TMPDIR = $ENV{TMPDIR};
+          my $OUTPUT_FILE = $ENV{OUTPUT_FILE};
+          my $cloud_spec_json = $ENV{cloud_spec_json};
+          my $HOME = $ENV{HOME};
 
-          echo "${HOME}${TMPDIR}/${OUTPUT_FILE}"
-        scriptType: BASH
+          # docker run command
+          my $func_to_execute = "docker run -i --init --mount type=bind,source=" . "\"${HOME}${TMPDIR}\"" . ",target=$TMPDIR" . " rttomlinson/mast " . "validate_cloud_spec ";
+          for my $context (@{$contexts}) {
+            $func_to_execute = $func_to_execute . "--context ${context} ";
+          }
+
+          $func_to_execute = $func_to_execute . "--output-file \"${OUTPUT_FILE}\" ";
+          $func_to_execute = $func_to_execute . "--cloud-spec-json '${cloud_spec_json}'";
+
+          say $func_to_execute;
+
+          system("$func_to_execute") == 0
+            or die "system perl failed: $?";
+
+          # Do something with the output? Put it where the executor said to
+
+          1;
         timeoutMillis: 30000
         variables:
           - name: context
@@ -463,21 +467,19 @@ deployment_spec:
         ResultPath: "task_definition"
         End: true
 
-        type: SHELL_SCRIPT
         outputVars: task_definition
         scriptString: |
+          #!/usr/bin/env bash
           set -e -o pipefail
           # TMPDIR probably needs to come from some system setting or using docker volumes
-          TMPDIR=/tmp
-          export OUTPUT_FILE="${outputVars}.json"
           # Also need to figure out wtf HOME is for different systems - Probably needs to be set at the beginning also depending on the user
           # Maybe we set the user for the entire execution or generate a new one. Seems messy
-          mkdir -p "${HOME}/tmp"
+          # You are given a tempdir location as an env var mkdir -p "${HOME}/tmp"
           # trap "rm -f $OUTPUT_FILE" 0
 
           docker run -i --init --mount type=bind,source="${HOME}${TMPDIR}",target=$TMPDIR --mount type=bind,source="${HOME}/.aws",target=/root/.aws rttomlinson/mast create_ecs_task_definition \
               --cloud-spec-url "active" \
-              --output-file "$TMPDIR/$OUTPUT_FILE" \
+              --output-file "$OUTPUT_FILE" \
               --cloud-spec-json "${cloud_spec_json}"
 
           # I need to somehow get the file out of this execution and into cloud_spec_json
@@ -486,8 +488,7 @@ deployment_spec:
           # will always return key-value pairs as strings
           # turn this info json and encode it and set it as the output value to outputVars
 
-          echo "${HOME}${TMPDIR}/${OUTPUT_FILE}"
-        scriptType: BASH
+          echo "${HOME}${OUTPUT_FILE}"
         timeoutMillis: 30000
         variables:
           - name: context

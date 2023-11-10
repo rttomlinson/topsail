@@ -9,7 +9,11 @@ $|=1;
 
 use Carp;
 use JSON::PP;
+use Scalar::Util 'looks_like_number';
 use Data::Dumper;
+use Data::UUID;
+ 
+
 # use AWS::CLIWrapper;
 use POSIX;
 
@@ -28,39 +32,63 @@ sub handle {
     #     croak_on_error => 1,
     # );
     my $HOME = $ENV{HOME};
-    system("mkdir -p ${HOME}/tmp") == 0
+
+    my $ug    = Data::UUID->new;
+    my $uuid = $ug->create();
+    my $dir_path = $ug->to_string( $uuid );
+    my $temporary_path_prefix = "tmp/${dir_path}";
+    my $workflow_temporary_directory_path = "${HOME}/${temporary_path_prefix}";
+    $ENV{HOST_TEMPORARY_DIRECTORY} = $workflow_temporary_directory_path;
+
+    system("mkdir -p $workflow_temporary_directory_path") == 0
         or die "system mkdir failed: $?";
     
-    my $json_file = '/tmp/big.json';
-    my $json_text = do { open my $fh, '<', $json_file; local $/; <$fh> };
-    my $perl_data = decode_json $json_text;
+    my $perl_data = $lambda_payload;
 
-    say "hello world";
-    # say Dumper($perl_data);
     ####
     # Initializing the pipeline
     ###
     my %workflow_state = ();
+    my @workflow_contexts = ();
+
+
+    my $overall_state_of_the_system = "NORMAL";
+
     ### "deploy" will need to be removed. since itself is context
-    my $step_name = $perl_data->{deployment_spec}->{deploy}->{StartAt};
+    ### We do this is everything is a-ok
+    my @deployment_contexts = ("deploy");
+    my $deployment_spec = collapser(\@deployment_contexts, $perl_data->{deployment_spec});
+    # This needs to be "global" so that if the overall deployment context "shifts" we can get the new deployment context
+
+
+    my $step_name = $deployment_spec->{StartAt};
     ### List of executed steps
     ### Log location
     ### Abort button
     ### All the "scaffolding"
     ### Get collapsed pipeline based on current contexts
-    # say $first_step;
     my $cloud_spec_json = $perl_data->{state}->{cloud_spec_json};
-    my $deployment_spec = $perl_data->{deployment_spec};
-    my $context = '["prestaging", "active"]';
-    $workflow_state{context} = $context;
+    
+
+    # my $context = '["prestaging", "active"]';
+    # $workflow_state{context} = $context;
     $workflow_state{cloud_spec_json} = $cloud_spec_json;
+
+    my @executed_steps = ();
+    my @completed_steps = ();
+
     my $step_script;
-
     while(1){
-        $step_script = $perl_data->{deployment_spec}->{deploy}->{States}->{$step_name}->{scriptString};
-        my $output_var = $perl_data->{deployment_spec}->{deploy}->{States}->{$step_name}->{outputVars};
 
-        my $arguments_as_env_vars = $perl_data->{deployment_spec}->{deploy}->{States}->{$step_name}->{variables};
+
+        # get "state" of pipeline
+        # get failure type
+
+
+        $step_script = $deployment_spec->{States}->{$step_name}->{scriptString};
+        my $output_var = $deployment_spec->{States}->{$step_name}->{ResultPath};
+
+        my $arguments_as_env_vars = $deployment_spec->{States}->{$step_name}->{variables};
 
         # what if the value has 'single quotes in it'?
         # Oh, we need to do that heredoc thing?
@@ -91,57 +119,129 @@ sub handle {
             } else {
                 $cloud_spec_json_arg = $arg->{value};
             }
+            # Injecting variables as env vars
             $ENV{$arg->{name}} = $cloud_spec_json_arg;
             push(@script_args, $arg->{name} . "=" . "\'${cloud_spec_json_arg}\'" . "\n");
         }
-        push(@script_args, "outputVars" . "=" . $output_var . "\n");
         
-        my @p_args = ("help",);
-        my $filename = '/tmp/hello.pl';
-        open(FH, '>', $filename) or die $!;
+        
+
+        # script name path on the host to invoke the script?
+        my $script_file_uuid = $ug->create();
+        my $script_filename = $ug->to_string( $script_file_uuid );
+        $script_filename = "${workflow_temporary_directory_path}/${script_filename}";
+        open(FH, '>', $script_filename) or die $!;
         print FH $step_script;
         close(FH);
 
-        $ENV{TMPDIR} = "/tmp";
-        $ENV{OUTPUT_FILE} = "/tmp/${output_var}.json";
+        # output filename
+        my $output_file_uuid = $ug->create();
+        my $output_filename = $ug->to_string( $output_file_uuid );
+        my $output_filename_path = "/${temporary_path_prefix}/${output_filename}";
+        $ENV{TMPDIR} = "/${temporary_path_prefix}";
+        $ENV{OUTPUT_FILE} = $output_filename_path;
 
-        # print "Writing to file successfully!\n";
-        system("$^X $filename") == 0
-            or die "system perl @p_args failed: $?";
-        # system("docker", @p_args) == 0
-        #     or die "system perl @p_args failed: $?";
-        my $home_dir = $ENV{HOME};
-        # read file from "${home_dir}/tmp/${output_var}"
-        my $file = "${home_dir}/tmp/${output_var}.json";
-        open my $info, $file or die "Could not open $file: $!";
-        my %script_output = ();
-        $workflow_state{$output_var} = \%script_output;
-        while( my $line = <$info>)  {
-            my($key, $value) = split(/=/, $line, 2);
-            $workflow_state{$output_var}{$key} = $value;
+        # my @p_args = ("help",);
+        my $script_exit_code = system("$^X $script_filename");
+        if($script_exit_code == 0) {
+            # Check if anything was written
+            my $home_dir = $ENV{HOME};
+            # read file from "${home_dir}/tmp/${output_var}"
+            my $file = "${workflow_temporary_directory_path}/${output_filename}";
+            if(-e $file) {
+                open my $info, $file or die "Could not open $file: $!";
+                my %script_output = ();
+                $workflow_state{$output_var} = \%script_output;
+                while( my $line = <$info>)  {
+                    my($key, $value) = split(/=/, $line, 2);
+                    $workflow_state{$output_var}{$key} = $value;
+                }
+                close $info;
+            } #else assume there was no output. we aren't dealing with host permission stuff here
+        } else {
+            say "system call failed with exit code: $script_exit_code";
+            $overall_state_of_the_system = "FAILURE";
+            # an error occurred during the script execution and we need to decide what to do next
         }
-        # say Dumper(%workflow_state);
-        
-        close $info;
-        if(defined $deployment_spec->{deploy}->{States}->{$step_name}->{Next}) {
-            say "found next value $deployment_spec->{States}->{$step_name}->{Next}";
-            $step_name = $deployment_spec->{deploy}->{States}->{$step_name}->{Next};
 
-        } elsif(defined $deployment_spec->{deploy}->{States}->{$step_name}->{End}) {
-            say "last step completed. exiting now";
+        $DB::single=1;
+        
+        #decider
+        if($overall_state_of_the_system eq 'NORMAL') {
+
+            if(defined $deployment_spec->{States}->{$step_name}->{Next}) {
+                say "found next value $deployment_spec->{States}->{$step_name}->{Next}";
+                $step_name = $deployment_spec->{States}->{$step_name}->{Next};
+
+            } elsif(defined $deployment_spec->{States}->{$step_name}->{End}) {
+                say "last step completed. exiting now";
+                last;
+            }
+        } elsif($overall_state_of_the_system eq 'FAILURE') {
+            if(defined $deployment_spec->{States}->{$step_name}->{OnError}) {
+                say "found next value $deployment_spec->{States}->{$step_name}->{OnError}";
+                $step_name = $deployment_spec->{States}->{$step_name}->{OnError};
+
+            } else {
+                say "No error steps found";
+                last;
+            }
+
+        } else {
+            say "unknown state tbh: $overall_state_of_the_system";
             last;
         }
 
     }
 
-    system("rm -rf ${HOME}/tmp") == 0
+    # system clean up
+    system("rm -rf $workflow_temporary_directory_path") == 0
         or die "system rm -rf failed: $?";
 
 }
 
-my %payload = ("hello" => "world");
+sub collapser {
+    my ($contexts, $spec) = @_;
 
-handle(\%payload);
+    my $collapsed_spec = $spec;
+
+    for my $context (@$contexts) {
+        $collapsed_spec = collapse_value($context, $collapsed_spec);
+    }
+    return $collapsed_spec;
+}
+
+# we look for the env as a key in hashes and will replace the entire hash value with the value of the env key
+sub collapse_value {
+    my ($context, $value) = @_;
+
+    if (not ref $value) {
+        return looks_like_number($value) ? $value + 0 : $value;
+    }
+
+    return $value if JSON::PP::is_bool($value);
+
+    if ('ARRAY' eq ref $value) {
+        return [map { collapse_value($context, $_) } @$value];
+    }
+
+    if ('HASH' eq ref $value) {
+        if(exists $value->{$context}) {
+            my $actual = $value->{$context};
+            return collapse_value($context, $actual);
+        }
+        return { map { $_ => collapse_value($context, $value->{$_}) } keys %$value };
+    }
+
+    confess "Something unexpected happened?";
+}
+
+my %payload = ("hello" => "world");
+my $json_file = '/tmp/big.json';
+my $json_text = do { open my $fh, '<', $json_file; local $/; <$fh> };
+my $perl_data = decode_json $json_text;
+
+handle($perl_data, \%payload);
 
 
 1;

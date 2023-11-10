@@ -59,8 +59,8 @@ cloud_spec:
 
     domainName: &domain_name_ref
       prestaging:
-        standby: "default-application-lb-2058232679.us-east-1.elb.amazonaws.com"
-        active: "default-application-lb-2058232679.us-east-1.elb.amazonaws.com"
+        standby: "default-application-lb-369101598.us-east-1.elb.amazonaws.com"
+        active: "default-application-lb-369101598.us-east-1.elb.amazonaws.com"
       staging: "example-lb-int-staging"
 
     loadBalancerName: &load_balancer_name_ref
@@ -75,24 +75,24 @@ cloud_spec:
       awsvpcConfiguration:
         # Max 16 security groups (quota increase request approved - Renzo Tomlinson. 16 is the limit)
         securityGroups:
-          prestaging: [sg-0553cfcde442fd42a]
+          prestaging: [sg-04e32946741f53173]
           staging: [sg-0802e31816e48501a]
 
         # Max 16 subnets
         subnets:
-          prestaging: [subnet-05ea5e798ffc50794, subnet-01a4ddc7507ad0e19]
+          prestaging: [subnet-02c16c59de4ec972f, subnet-09f0d8b22fa1a8459]
           staging:
             [subnet-1de9466b, subnet-4c3dfb14, subnet-e3c555de, subnet-60cf3d4a]
 
         assignPublicIp: DISABLED # or ENABLED #
 
     executionRoleArn: &execution_role_arn_ref
-      prestaging: "arn:aws:iam::621125127298:role/default-task-execution-role"
-      staging: "arn:aws:iam::621125127298:role/example_staging_ecs_TER"
+      prestaging: "arn:aws:iam::787506028470:role/default-task-execution-role"
+      staging: "arn:aws:iam::787506028470:role/example_staging_ecs_TER"
 
     taskRoleArn: &task_role_arn_ref
-      prestaging: "arn:aws:iam::621125127298:role/default-task-role"
-      staging: "arn:aws:iam::621125127298:role/example_staging_ecs_TR"
+      prestaging: "arn:aws:iam::787506028470:role/default-task-role"
+      staging: "arn:aws:iam::787506028470:role/example_staging_ecs_TR"
 
   aws:
     region: us-east-1
@@ -405,6 +405,7 @@ cloud_spec:
 # what role to assume and which role to use
 deployment_spec:
   deploy:
+    RoleArn: "arn:aws:iam::599617893694:role/default-step-function-lambda-role" # This is just a placeholder
     TMPDIR: /tmp # Something scoped at the system level - specific to the host machine and user space
     StartAt: "Validate Cloud Spec"
     States:
@@ -416,7 +417,6 @@ deployment_spec:
         # End: true
         Next: "Create ECS Task Definition"
 
-        outputVars: standby_cloud_spec
         scriptString: |
           #!/usr/bin/env perl
 
@@ -431,14 +431,15 @@ deployment_spec:
           $|=1;
           say "hello perl";
           my $contexts = decode_json $ENV{context};
-          
+
           my $TMPDIR = $ENV{TMPDIR};
           my $OUTPUT_FILE = $ENV{OUTPUT_FILE};
+          my $HOST_TEMPORARY_DIRECTORY = $ENV{HOST_TEMPORARY_DIRECTORY};
           my $cloud_spec_json = $ENV{cloud_spec_json};
           my $HOME = $ENV{HOME};
 
           # docker run command
-          my $func_to_execute = "docker run -i --init --mount type=bind,source=" . "\"${HOME}${TMPDIR}\"" . ",target=$TMPDIR" . " rttomlinson/mast " . "validate_cloud_spec ";
+          my $func_to_execute = "docker run -i --init --mount type=bind,source=" . "\"${HOST_TEMPORARY_DIRECTORY}\"" . ",target=$TMPDIR" . " rttomlinson/mast " . "validate_cloud_spec ";
           for my $context (@{$contexts}) {
             $func_to_execute = $func_to_execute . "--context ${context} ";
           }
@@ -457,17 +458,18 @@ deployment_spec:
         timeoutMillis: 30000
         variables:
           - name: context
-            value: ${workflow.context}
+            value: '["prestaging", "standby"]'
           - name: cloud_spec_json
             value: ${workflow.cloud_spec_json}
+        OnError: "RejectedPassState"
       Create ECS Task Definition:
         Type: "Task"
         # Resource: "function:mast-lambda"
         # Parameters:
         ResultPath: "task_definition"
-        End: true
+        Next: "Create ELB Target Groups"
+        # End: true
 
-        outputVars: task_definition
         scriptString: |
           #!/usr/bin/env bash
           set -e -o pipefail
@@ -475,9 +477,8 @@ deployment_spec:
           # Also need to figure out wtf HOME is for different systems - Probably needs to be set at the beginning also depending on the user
           # Maybe we set the user for the entire execution or generate a new one. Seems messy
           # You are given a tempdir location as an env var mkdir -p "${HOME}/tmp"
-          # trap "rm -f $OUTPUT_FILE" 0
 
-          docker run -i --init --mount type=bind,source="${HOME}${TMPDIR}",target=$TMPDIR --mount type=bind,source="${HOME}/.aws",target=/root/.aws rttomlinson/mast create_ecs_task_definition \
+          docker run -i --init --mount type=bind,source="${HOST_TEMPORARY_DIRECTORY}",target=$TMPDIR --mount type=bind,source="${HOME}/.aws",target=/root/.aws rttomlinson/mast create_ecs_task_definition \
               --cloud-spec-url "active" \
               --output-file "$OUTPUT_FILE" \
               --cloud-spec-json "${cloud_spec_json}"
@@ -491,141 +492,310 @@ deployment_spec:
           echo "${HOME}${OUTPUT_FILE}"
         timeoutMillis: 30000
         variables:
+          - name: cloud_spec_json
+            value: ${workflow.standby_cloud_spec.cloud_spec_json}
+        OnError: "RejectedPassState"
+      Create ELB Target Groups:
+        scriptString: |
+          #!/usr/bin/env bash
+          set -e -o pipefail
+          # TMPDIR probably needs to come from some system setting or using docker volumes
+          # Also need to figure out wtf HOME is for different systems - Probably needs to be set at the beginning also depending on the user
+          # Maybe we set the user for the entire execution or generate a new one. Seems messy
+          # You are given a tempdir location as an env var mkdir -p "${HOME}/tmp"
+          exit 123;
+          docker run -i --init --mount type=bind,source="${HOME}/.aws",target=/root/.aws rttomlinson/mast create_elb_target_groups \
+              --cloud-spec-json "${cloud_spec_json}"
+
+        timeoutMillis: 30000
+        variables:
+          - name: cloud_spec_json
+            value: ${workflow.standby_cloud_spec.cloud_spec_json}
+        Next: "Update ELB Listener Rules"
+        OnError: "Delete ELB Target Groups"
+      Update ELB Listener Rules:
+        scriptString: |
+          #!/usr/bin/env bash
+          set -e -o pipefail
+          # TMPDIR probably needs to come from some system setting or using docker volumes
+          # Also need to figure out wtf HOME is for different systems - Probably needs to be set at the beginning also depending on the user
+          # Maybe we set the user for the entire execution or generate a new one. Seems messy
+          # You are given a tempdir location as an env var mkdir -p "${HOME}/tmp"
+
+          docker run -i --init --mount type=bind,source="${HOME}/.aws",target=/root/.aws rttomlinson/mast update_elb_listener_rules \
+              --cloud-spec-json "${cloud_spec_json}"
+
+        timeoutMillis: 30000
+        variables:
+          - name: cloud_spec_json
+            value: ${workflow.standby_cloud_spec.cloud_spec_json}
+        Next: "Create ECS Service"
+        OnError: "Delete ELB Listener Rules"
+      Create ECS Service:
+        scriptString: |
+          #!/usr/bin/env bash
+          set -e -o pipefail
+          # TMPDIR probably needs to come from some system setting or using docker volumes
+          # Also need to figure out wtf HOME is for different systems - Probably needs to be set at the beginning also depending on the user
+          # Maybe we set the user for the entire execution or generate a new one. Seems messy
+          # You are given a tempdir location as an env var mkdir -p "${HOME}/tmp"
+
+          docker run -i --init --mount type=bind,source="${HOST_TEMPORARY_DIRECTORY}",target=$TMPDIR --mount type=bind,source="${HOME}/.aws",target=/root/.aws rttomlinson/mast create_ecs_service \
+              --cloud-spec-json "${cloud_spec_json}" \
+              --poll-interval ${poll_interval} \
+              --task-definition-arn ${task_definition_arn} \
+              --output-file "$OUTPUT_FILE"
+
+        timeoutMillis: 30000
+        variables:
+          - name: cloud_spec_json
+            value: ${workflow.standby_cloud_spec.cloud_spec_json}
+          - name: poll_interval
+            value: 10
+          - name: task_definition_arn
+            value: ${workflow.task_definition.task_definition_arn}
+        # ResultPath: "ecs_service"
+        Next: "Python Create ECS Task Definition"
+        OnError: "Scale ECS Service Tasks to 0"
+        # End: true
+      ##########
+      Python Create ECS Task Definition:
+        Type: "Task"
+        # Resource: "function:mast-lambda"
+        # Parameters:
+        ResultPath: "python_task_definition"
+
+        outputVars: python_task_definition
+        scriptString: |
+          #!/usr/bin/env python
+          print("I'm a neat python script")
+        timeoutMillis: 30000
+        variables:
           - name: context
             value: ${workflow.context}
           - name: cloud_spec_json
             value: ${workflow.standby_cloud_spec.cloud_spec_json}
-      ##########
+        End: true
 
-      #######################
-      Holder Create ECS Task Definition:
-        Type: "Task"
-        # Resource: "function:mast-lambda"
-        Parameters:
-          {
-            "step_name": "create_ecs_task_definition",
-            "cloud_spec_json.$": "$.standby_cloud_spec.cloud_spec_json",
-            "output_file": "/tmp/deployment.json",
-            "cloud_spec_url": "https://raw.githubusercontent.com/yahooo",
-          }
-        ResultPath: "ecs_task_definition"
-        Next: "Create ELB Target Groups"
+      ##################
+      # What about rollback steps? a la: JumpTo:
 
-      Create ELB Target Groups:
+      Scale ECS Service Tasks to 0:
         Type: "Task"
-        # Resource: "function:mast-lambda"
-        Parameters:
-          {
-            "step_name": "create_elb_target_groups",
-            "cloud_spec_json.$": "$.standby_cloud_spec.cloud_spec_json",
-          }
-        # ResultPath: "elb_target_groups"
-        Next: "Create or Update ELB Listeners"
-      Create or Update ELB Listeners:
-        Type: "Task"
-        # Resource: "function:mast-lambda"
-        Parameters:
-          {
-            "step_name": "update_elb_listeners",
-            "cloud_spec_json.$": "$.standby_cloud_spec.cloud_spec_json",
-          }
-        # ResultPath: "elb_listener_rules"
-        Next: "Update ELB Listener Rules"
-      Update ELB Listener Rules:
-        Type: "Task"
-        # Resource: "function:mast-lambda"
-        Parameters:
-          {
-            "step_name": "update_elb_listener_rules",
-            "cloud_spec_json.$": "$.standby_cloud_spec.cloud_spec_json",
-          }
-        # ResultPath: "elb_listener_rules"
-        Next: "Create ECS Service"
+        scriptString: |
+          #!/usr/bin/env bash
+          set -e -o pipefail
+          # TMPDIR probably needs to come from some system setting or using docker volumes
+          # Also need to figure out wtf HOME is for different systems - Probably needs to be set at the beginning also depending on the user
+          # Maybe we set the user for the entire execution or generate a new one. Seems messy
+          # You are given a tempdir location as an env var mkdir -p "${HOME}/tmp"
 
-      Create ECS Service:
-        Type: "Task"
-        # Resource: "function:mast-lambda"
-        Parameters:
-          {
-            "step_name": "create_ecs_service",
-            "cloud_spec_json.$": "$.standby_cloud_spec.cloud_spec_json",
-            "poll_interval": 10,
-            "task_definition_arn.$": "$.ecs_task_definition.task_definition_arn",
-            "output_file": "/tmp/deployment.json",
-          }
+          docker run -i --init --mount type=bind,source="${HOME}/.aws",target=/root/.aws rttomlinson/mast scale_ecs_service \
+              --poll-interval 10 \
+              --desired-count 0 \
+              --cloud-spec-json "${cloud_spec_json}"
+
+        timeoutMillis: 30000
+        variables:
+          - name: cloud_spec_json
+            value: ${workflow.standby_cloud_spec.cloud_spec_json}
+        Next: "Delete ECS Service"
+      Delete ECS Service:
+        scriptString: |
+          #!/usr/bin/env bash
+          set -e -o pipefail
+          # TMPDIR probably needs to come from some system setting or using docker volumes
+          # Also need to figure out wtf HOME is for different systems - Probably needs to be set at the beginning also depending on the user
+          # Maybe we set the user for the entire execution or generate a new one. Seems messy
+          # You are given a tempdir location as an env var mkdir -p "${HOME}/tmp"
+
+          docker run -i --init --mount type=bind,source="${HOME}/.aws",target=/root/.aws rttomlinson/mast delete_ecs_service \
+              --poll-interval 10 \
+              --cloud-spec-json "${cloud_spec_json}"
+
+        timeoutMillis: 30000
+        variables:
+          - name: cloud_spec_json
+            value: ${workflow.standby_cloud_spec.cloud_spec_json}
+        Next: "Delete ELB Listener Rules"
+      Delete ELB Listener Rules:
+        scriptString: |
+          #!/usr/bin/env bash
+          set -e -o pipefail
+          # TMPDIR probably needs to come from some system setting or using docker volumes
+          # Also need to figure out wtf HOME is for different systems - Probably needs to be set at the beginning also depending on the user
+          # Maybe we set the user for the entire execution or generate a new one. Seems messy
+          # You are given a tempdir location as an env var mkdir -p "${HOME}/tmp"
+
+          docker run -i --init --mount type=bind,source="${HOME}/.aws",target=/root/.aws rttomlinson/mast delete_elb_listener_rules \
+              --cloud-spec-json "${cloud_spec_json}"
+
+        timeoutMillis: 30000
+        variables:
+          - name: cloud_spec_json
+            value: ${workflow.standby_cloud_spec.cloud_spec_json}
+        Next: "Delete ELB Target Groups"
+
+      Delete ELB Target Groups:
+        scriptString: |
+          #!/usr/bin/env bash
+          set -e -o pipefail
+          # TMPDIR probably needs to come from some system setting or using docker volumes
+          # Also need to figure out wtf HOME is for different systems - Probably needs to be set at the beginning also depending on the user
+          # Maybe we set the user for the entire execution or generate a new one. Seems messy
+          # You are given a tempdir location as an env var mkdir -p "${HOME}/tmp"
+
+          # check if target groups exist
+          # if they do, delete them. else skip to the next ones
+
+          docker run -i --init --mount type=bind,source="${HOME}/.aws",target=/root/.aws rttomlinson/mast delete_elb_target_groups \
+              --cloud-spec-json "${cloud_spec_json}"
+
+        timeoutMillis: 30000
+        variables:
+          - name: cloud_spec_json
+            value: ${workflow.standby_cloud_spec.cloud_spec_json}
         # ResultPath: "ecs_service"
-        End: true,
-  rollback:
+        End: true
+      #### End "rollback steps"
+      "ApprovedPassState": { "Type": "Pass", "End": true }
+      "RejectedPassState": { "Type": "Pass", "End": true }
+      #######################
+  delete:
+    RoleArn: "arn:aws:iam::599617893694:role/default-step-function-lambda-role" # This is just a placeholder
+    TMPDIR: /tmp # Something scoped at the system level - specific to the host machine and user space
     StartAt: "Validate Cloud Spec"
     States:
       Validate Cloud Spec:
         Type: "Task"
         # Resource: "function:mast-lambda"
-        Command: "docker run mast kjaslkdjflajsdlfajdlfk"
-        Parameters:
-          {
-            "step_name": "validate_cloud_spec",
-            "cloud_spec_json.$": "$.cloud_spec_json",
-            "context": ["prestaging", "standby"],
-            "output_file": "/tmp/deployment.json",
-          }
+        # Parameters:
         ResultPath: "standby_cloud_spec"
-        Next: "Create ECS Task Definition"
+        # End: true
 
-      Create ECS Task Definition:
-        Type: "Task"
-        # Resource: "function:mast-lambda"
-        Parameters:
-          {
-            "step_name": "create_ecs_task_definition",
-            "cloud_spec_json.$": "$.standby_cloud_spec.cloud_spec_json",
-            "output_file": "/tmp/deployment.json",
-            "cloud_spec_url": "https://raw.githubusercontent.com/yahooo",
-          }
-        ResultPath: "ecs_task_definition"
-        Next: "Create ELB Target Groups"
+        scriptString: |
+          #!/usr/bin/env perl
 
-      Create ELB Target Groups:
-        Type: "Task"
-        # Resource: "function:mast-lambda"
-        Parameters:
-          {
-            "step_name": "create_elb_target_groups",
-            "cloud_spec_json.$": "$.standby_cloud_spec.cloud_spec_json",
-          }
-        # ResultPath: "elb_target_groups"
-        Next: "Create or Update ELB Listeners"
-      Create or Update ELB Listeners:
-        Type: "Task"
-        # Resource: "function:mast-lambda"
-        Parameters:
-          {
-            "step_name": "update_elb_listeners",
-            "cloud_spec_json.$": "$.standby_cloud_spec.cloud_spec_json",
-          }
-        # ResultPath: "elb_listener_rules"
-        Next: "Update ELB Listener Rules"
-      Update ELB Listener Rules:
-        Type: "Task"
-        # Resource: "function:mast-lambda"
-        Parameters:
-          {
-            "step_name": "update_elb_listener_rules",
-            "cloud_spec_json.$": "$.standby_cloud_spec.cloud_spec_json",
-          }
-        # ResultPath: "elb_listener_rules"
-        Next: "Create ECS Service"
+          use v5.030;
+          use strictures 2;
+          use warnings;
+          no warnings 'uninitialized';
+          use JSON::PP;
 
-      Create ECS Service:
+
+          #suffering from buffering
+          $|=1;
+          say "hello perl";
+          my $contexts = decode_json $ENV{context};
+
+          my $TMPDIR = $ENV{TMPDIR};
+          my $OUTPUT_FILE = $ENV{OUTPUT_FILE};
+          my $HOST_TEMPORARY_DIRECTORY = $ENV{HOST_TEMPORARY_DIRECTORY};
+          my $cloud_spec_json = $ENV{cloud_spec_json};
+          my $HOME = $ENV{HOME};
+
+          # docker run command
+          my $func_to_execute = "docker run -i --init --mount type=bind,source=" . "\"${HOST_TEMPORARY_DIRECTORY}\"" . ",target=$TMPDIR" . " rttomlinson/mast " . "validate_cloud_spec ";
+          for my $context (@{$contexts}) {
+            $func_to_execute = $func_to_execute . "--context ${context} ";
+          }
+
+          $func_to_execute = $func_to_execute . "--output-file \"${OUTPUT_FILE}\" ";
+          $func_to_execute = $func_to_execute . "--cloud-spec-json '${cloud_spec_json}'";
+
+          say $func_to_execute;
+
+          system("$func_to_execute") == 0
+            or die "system perl failed: $?";
+
+          # Do something with the output? Put it where the executor said to
+
+          1;
+        timeoutMillis: 30000
+        variables:
+          - name: context
+            value: '["prestaging", "standby"]'
+          - name: cloud_spec_json
+            value: ${workflow.cloud_spec_json}
+        Next: "Scale ECS Service Tasks to 0"
+      Scale ECS Service Tasks to 0:
         Type: "Task"
         # Resource: "function:mast-lambda"
-        Parameters:
-          {
-            "step_name": "create_ecs_service",
-            "cloud_spec_json.$": "$.standby_cloud_spec.cloud_spec_json",
-            "poll_interval": 10,
-            "task_definition_arn.$": "$.ecs_task_definition.task_definition_arn",
-            "output_file": "/tmp/deployment.json",
-          }
+        # Parameters:
+        ResultPath: "task_definition"
+
+        # End: true
+
+        scriptString: |
+          #!/usr/bin/env bash
+          set -e -o pipefail
+          # TMPDIR probably needs to come from some system setting or using docker volumes
+          # Also need to figure out wtf HOME is for different systems - Probably needs to be set at the beginning also depending on the user
+          # Maybe we set the user for the entire execution or generate a new one. Seems messy
+          # You are given a tempdir location as an env var mkdir -p "${HOME}/tmp"
+
+          docker run -i --init --mount type=bind,source="${HOME}/.aws",target=/root/.aws rttomlinson/mast scale_ecs_service \
+              --poll-interval 10 \
+              --desired-count 0 \
+              --cloud-spec-json "${cloud_spec_json}"
+
+        timeoutMillis: 30000
+        variables:
+          - name: cloud_spec_json
+            value: ${workflow.standby_cloud_spec.cloud_spec_json}
+        Next: "Delete ECS Service"
+      Delete ECS Service:
+        scriptString: |
+          #!/usr/bin/env bash
+          set -e -o pipefail
+          # TMPDIR probably needs to come from some system setting or using docker volumes
+          # Also need to figure out wtf HOME is for different systems - Probably needs to be set at the beginning also depending on the user
+          # Maybe we set the user for the entire execution or generate a new one. Seems messy
+          # You are given a tempdir location as an env var mkdir -p "${HOME}/tmp"
+
+          docker run -i --init --mount type=bind,source="${HOME}/.aws",target=/root/.aws rttomlinson/mast delete_ecs_service \
+              --poll-interval 10 \
+              --cloud-spec-json "${cloud_spec_json}"
+
+        timeoutMillis: 30000
+        variables:
+          - name: cloud_spec_json
+            value: ${workflow.standby_cloud_spec.cloud_spec_json}
+        Next: "Delete ELB Listener Rules"
+      Delete ELB Listener Rules:
+        scriptString: |
+          #!/usr/bin/env bash
+          set -e -o pipefail
+          # TMPDIR probably needs to come from some system setting or using docker volumes
+          # Also need to figure out wtf HOME is for different systems - Probably needs to be set at the beginning also depending on the user
+          # Maybe we set the user for the entire execution or generate a new one. Seems messy
+          # You are given a tempdir location as an env var mkdir -p "${HOME}/tmp"
+
+          docker run -i --init --mount type=bind,source="${HOME}/.aws",target=/root/.aws rttomlinson/mast delete_elb_listener_rules \
+              --cloud-spec-json "${cloud_spec_json}"
+
+        timeoutMillis: 30000
+        variables:
+          - name: cloud_spec_json
+            value: ${workflow.standby_cloud_spec.cloud_spec_json}
+        Next: "Delete ELB Target Groups"
+
+      Delete ELB Target Groups:
+        scriptString: |
+          #!/usr/bin/env bash
+          set -e -o pipefail
+          # TMPDIR probably needs to come from some system setting or using docker volumes
+          # Also need to figure out wtf HOME is for different systems - Probably needs to be set at the beginning also depending on the user
+          # Maybe we set the user for the entire execution or generate a new one. Seems messy
+          # You are given a tempdir location as an env var mkdir -p "${HOME}/tmp"
+
+          docker run -i --init --mount type=bind,source="${HOME}/.aws",target=/root/.aws rttomlinson/mast delete_elb_target_groups \
+              --cloud-spec-json "${cloud_spec_json}"
+
+        timeoutMillis: 30000
+        variables:
+          - name: cloud_spec_json
+            value: ${workflow.standby_cloud_spec.cloud_spec_json}
         # ResultPath: "ecs_service"
-        End: true,
+        End: true
+        # End: true

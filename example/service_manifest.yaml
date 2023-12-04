@@ -441,10 +441,12 @@ deployment_spec:
           my $TMPDIR = $ENV{TMPDIR};
           my $OUTPUT_FILE = $ENV{OUTPUT_FILE};
           my $HOST_TEMPORARY_DIRECTORY = $ENV{HOST_TEMPORARY_DIRECTORY};
+          my $HOST_TEMPORARY_DIRECTORY = $ENV{HOST_TEMPORARY_DIRECTORY};
           my $cloud_spec_json = $ENV{cloud_spec_json};
           my $HOME = $ENV{HOME};
 
           # docker run command
+          my $func_to_execute = "docker run -i --init --mount type=bind,source=" . "\"${HOST_TEMPORARY_DIRECTORY}\"" . ",target=$TMPDIR" . " rttomlinson/mast " . "validate_cloud_spec ";
           my $func_to_execute = "docker run -i --init --mount type=bind,source=" . "\"${HOST_TEMPORARY_DIRECTORY}\"" . ",target=$TMPDIR" . " rttomlinson/mast " . "validate_cloud_spec ";
           for my $context (@{$contexts}) {
             $func_to_execute = $func_to_execute . "--context ${context} ";
@@ -462,6 +464,7 @@ deployment_spec:
         timeoutMillis: 30000
         variables:
           - name: context
+            value: '["prestaging", "standby"]'
             value: '["prestaging", "standby"]'
           - name: cloud_spec_json
             value: ${workflow.cloud_spec_json}
@@ -516,7 +519,23 @@ deployment_spec:
             value: ${workflow.standby_cloud_spec.cloud_spec_json}
         Next: "Update ELB Listener Rules"
         OnError: "Delete ELB Target Groups"
+        OnError: "Delete ELB Target Groups"
       Update ELB Listener Rules:
+        scriptString: |
+          #!/usr/bin/env bash
+          set -e -o pipefail
+          # TMPDIR probably needs to come from some system setting or using docker volumes
+          # Also need to figure out wtf HOME is for different systems - Probably needs to be set at the beginning also depending on the user
+          # Maybe we set the user for the entire execution or generate a new one. Seems messy
+          # You are given a tempdir location as an env var mkdir -p "${HOME}/tmp"
+
+          docker run -i --init --mount type=bind,source="${HOME}/.aws",target=/root/.aws rttomlinson/mast update_elb_listener_rules \
+              --cloud-spec-json "${cloud_spec_json}"
+
+        timeoutMillis: 30000
+        variables:
+          - name: cloud_spec_json
+            value: ${workflow.standby_cloud_spec.cloud_spec_json}
         scriptString: |
           #!/usr/bin/env bash
           set -e -o pipefail
@@ -536,6 +555,34 @@ deployment_spec:
 
         OnErrorContext: ["rollback", "update_elb_listener_start"]
       Create ECS Service:
+        scriptString: |
+          #!/usr/bin/env bash
+          set -e -o pipefail
+          # TMPDIR probably needs to come from some system setting or using docker volumes
+          # Also need to figure out wtf HOME is for different systems - Probably needs to be set at the beginning also depending on the user
+          # Maybe we set the user for the entire execution or generate a new one. Seems messy
+          # You are given a tempdir location as an env var mkdir -p "${HOME}/tmp"
+
+          docker run -i --init --mount type=bind,source="${HOST_TEMPORARY_DIRECTORY}",target=$TMPDIR --mount type=bind,source="${HOME}/.aws",target=/root/.aws rttomlinson/mast create_ecs_service \
+              --cloud-spec-json "${cloud_spec_json}" \
+              --poll-interval ${poll_interval} \
+              --task-definition-arn ${task_definition_arn} \
+              --output-file "$OUTPUT_FILE"
+
+        timeoutMillis: 30000
+        variables:
+          - name: cloud_spec_json
+            value: ${workflow.standby_cloud_spec.cloud_spec_json}
+          - name: poll_interval
+            value: 10
+          - name: task_definition_arn
+            value: ${workflow.task_definition.task_definition_arn}
+        # ResultPath: "ecs_service"
+        Next: "Python Create ECS Task Definition"
+        OnError: "Scale ECS Service Tasks to 0"
+        # End: true
+      ##########
+      Python Create ECS Task Definition:
         scriptString: |
           #!/usr/bin/env bash
           set -e -o pipefail
@@ -591,6 +638,7 @@ deployment_spec:
       Validate Cloud Spec:
         Type: "Task"
         # Resource: "function:mast-lambda"
+        # Parameters:
         # Parameters:
         ResultPath: "standby_cloud_spec"
         # End: true

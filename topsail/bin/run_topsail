@@ -1,29 +1,114 @@
 #!/usr/bin/env perl
+
+$| = 1;
 use v5.030;
-use strictures 2;
 use warnings;
+use strictures 2;
 no warnings 'uninitialized';
-
-#suffering from buffering
-$|=1;
-
+use JSON::PP;
 use Carp;
 use JSON::PP;
 use Data::Dumper;
 use Data::UUID;
- 
-
+use Getopt::Long;
+Getopt::Long::Configure("pass_through");
 # use AWS::CLIWrapper;
 use POSIX;
 
-# Logger helper module for aws lambda request
-# use Topsail::CustomLogger qw(get_logger);
-# my $log = get_logger();
+
+my (@deployment_contexts, $input_file, $output_file, $deployment_spec_json);
+
+# Conditional
+
+# from file
+# from argument
+# from url
+# from docker tag
+# from docker label
+
+GetOptions(
+  'context=s' => \@deployment_contexts,
+  'input-file=s' => \$input_file, # deployment_spec_json
+  'deployment-spec-json=s' => \$deployment_spec_json, # deployment_spec_json
+  'output-file=s' => \$output_file,
+)
+  or die("Error in command line arguments");
+
+say("Contexts: @deployment_contexts");
+say("Input file: $input_file");
+
+# choice?
+my $service_manifest;
+my $original_deployment_spec;
+if(defined $input_file) {
+  my $json_file = $input_file;
+  # my $json_file = '/tmp/big.json';
+  my $json_text = do { open my $fh, '<', $json_file or die "could not open file $input_file"; local $/; <$fh> };
+  $original_deployment_spec = decode_json $json_text;
+  $original_deployment_spec = $original_deployment_spec->{deployment_spec};
+} elsif(defined $deployment_spec_json) {
+    $original_deployment_spec = decode_json $deployment_spec_json;
+}
+
+# Is it okay to change the deployment context for each step? Probably but we should want to record it somewhere whats happening and _how_ we got to the deployment spec we're using
+
+confess "valid service manifest not found" unless defined $original_deployment_spec;
+# Need to be env var equivalents
+
+my %payload = ();
+my $deployment_contexts = \@deployment_contexts;
+my $overall_state_of_the_system = '';
+while(1) {
+    #decider
+    my $deployment_spec = collapser($deployment_contexts, $original_deployment_spec);
+    $DB::single=1;
+    my @pipeline_variable_keys = keys %{$deployment_spec->{variables}};
+    for my $pipeline_variable_key (@pipeline_variable_keys) {
+        my $val_key_type = ref $deployment_spec->{variables}->{$pipeline_variable_key};
+        if($val_key_type eq '') {
+            $payload{$pipeline_variable_key} = $deployment_spec->{variables}->{$pipeline_variable_key};
+        } else {
+            # if hash or array, then encode_json
+            $payload{$pipeline_variable_key} = encode_json $deployment_spec->{variables}->{$pipeline_variable_key};
+        }
+    }
+    say "starting workflow execution";
+    my ($new_overall_state_of_the_system, $new_next_deployment_contexts) = handle(\%payload, $deployment_spec);
+    # my ($new_overall_state_of_the_system, $new_next_deployment_contexts) = handle($service_manifest, \%payload, $deployment_spec);
+
+    $overall_state_of_the_system = $new_overall_state_of_the_system if defined $new_overall_state_of_the_system;
+
+    # $deployment_contexts = $new_next_deployment_contexts if defined $new_next_deployment_contexts;
+    if($overall_state_of_the_system eq 'CHANGE') {
+        confess "System detected a change, but no new workflow was provided. Aborting the workflow" unless defined $new_next_deployment_contexts;
+        $deployment_contexts = $new_next_deployment_contexts;
+        say "one of the steps failed";
+        say "we should show you the logs";
+    } elsif($overall_state_of_the_system eq 'END') {
+        say "we done";
+        last;
+    } else {
+        say "unknown state tbh: $overall_state_of_the_system";
+        last;
+    }
+}
+
+# Output is optional
+if ($output_file) {
+  open my $fh, ">", $output_file or die("Cannot open $output_file for writing: $!\n");
+  say "opened $output_file";
+  # say $fh qq|cloud_spec_json=$json_encoded_cloud_spec|;
+  close $fh;
+}
+
+say "finish running the script. yay";
 
 sub handle {
 
     # Note: step name is confusing because there is mast step name and deployment step name
-    my ($service_manifest, $pipeline_variables, $deployment_spec) = @_;
+    my ($pipeline_variables, $deployment_spec) = @_;
+    # my ($service_manifest, $pipeline_variables, $deployment_spec) = @_;
+
 
     my $HOME = $ENV{HOME};
 
@@ -165,7 +250,7 @@ sub handle {
             }
         } elsif($overall_state_of_the_workflow eq 'FAILURE') {
             if(defined $deployment_spec->{States}->{$step_name}->{OnErrorContext}) {
-                say "found next value $deployment_spec->{States}->{$step_name}->{OnErrorContext}";
+                say "found next context(s) values: " . join(" ", @{$deployment_spec->{States}->{$step_name}->{OnErrorContext}});
                 return "CHANGE", $deployment_spec->{States}->{$step_name}->{OnErrorContext};
 
             } else {
@@ -224,68 +309,5 @@ sub collapse_value {
     confess "Something unexpected happened?";
 }
 
-my %payload = ();
-my $json_file = '/tmp/big.json';
-my $json_text = do { open my $fh, '<', $json_file; local $/; <$fh> };
-my $service_manifest = decode_json $json_text;
-# Is it okay to change the deployment context for each step? Probably but we should want to record it somewhere whats happening and _how_ we got to the deployment spec we're using
-
-my @deployment_contexts = ("deploy");
-my $overall_state_of_the_system = "";
-# Need to be env var equivalents
-### "deploy" will need to be removed. since itself is context
-### We do this is everything is a-ok
-my $deployment_spec = collapser(\@deployment_contexts, $service_manifest->{deployment_spec});
-
-my @pipeline_variable_keys = keys %{$deployment_spec->{variables}};
-for my $pipeline_variable_key (@pipeline_variable_keys) {
-    my $val_key_type = ref $deployment_spec->{variables}->{$pipeline_variable_key};
-    if($val_key_type eq '') {
-        $payload{$pipeline_variable_key} = $deployment_spec->{variables}->{$pipeline_variable_key};
-    } else {
-        # if hash or array, then encode_json
-        $payload{$pipeline_variable_key} = encode_json $deployment_spec->{variables}->{$pipeline_variable_key};
-    }
-}
-
-# grab variables here?
-$DB::single=1;
-my $deployment_contexts = \@deployment_contexts;
-while(1) {
-    #decider
-    my $deployment_spec = collapser($deployment_contexts, $service_manifest->{deployment_spec});
-
-    my @pipeline_variable_keys = keys %{$deployment_spec->{variables}};
-    for my $pipeline_variable_key (@pipeline_variable_keys) {
-        my $val_key_type = ref $deployment_spec->{variables}->{$pipeline_variable_key};
-        if($val_key_type eq '') {
-            $payload{$pipeline_variable_key} = $deployment_spec->{variables}->{$pipeline_variable_key};
-        } else {
-            # if hash or array, then encode_json
-            $payload{$pipeline_variable_key} = encode_json $deployment_spec->{variables}->{$pipeline_variable_key};
-        }
-    }
-
-    if($overall_state_of_the_system eq '') {
-        my ($new_overall_state_of_the_system, $new_next_deployment_contexts) = handle($service_manifest, \%payload, $deployment_spec);
-        $overall_state_of_the_system = $new_overall_state_of_the_system if defined $new_overall_state_of_the_system;
-        $deployment_contexts = $new_next_deployment_contexts if defined $new_next_deployment_contexts;
-    } elsif($overall_state_of_the_system eq 'CHANGE') {
-        say "one of the steps failed";
-        my ($new_overall_state_of_the_system, $new_next_deployment_contexts) = handle($service_manifest, \%payload, $deployment_spec);
-        $overall_state_of_the_system = $new_overall_state_of_the_system if defined $new_overall_state_of_the_system;
-        $deployment_contexts = $new_next_deployment_contexts if defined $new_next_deployment_contexts;
-        say "we should show you the logs";
-        last;
-    } elsif($overall_state_of_the_system eq 'END') {
-        say "we done";
-        last;
-    } else {
-        say "unknown state tbh: $overall_state_of_the_system";
-        last;
-    }
-}
-
-
-
 1;
+

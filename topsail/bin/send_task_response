@@ -1,0 +1,50 @@
+#!/usr/bin/env perl
+
+$| = 1;
+use v5.030;
+use warnings;
+use strictures 2;
+no warnings 'uninitialized';
+
+use Carp 'confess';
+use JSON::PP;
+use AWS::CLIWrapper;
+
+use Getopt::Long;
+Getopt::Long::Configure("pass_through");
+
+my ($activity_arn,);
+
+# Conditional
+
+GetOptions(
+  'activity-arn=s' => \$activity_arn,
+)
+  or die("Error in command line arguments");
+
+say("Activity ARN: $activity_arn");
+
+my $aws = AWS::CLIWrapper->new(
+    region => 'us-east-1',
+);
+
+# This API action isn’t logged in CloudTrail. 
+my $res = $aws->stepfunctions(
+    'get-activity-task' => {
+        "activity-arn" => $activity_arn,
+        "worker-name" => "trashcan-man"
+    },
+    timeout => 30, # optional. default is 30 seconds
+);
+ 
+if ($res) {
+    my $task_token = $res->{taskToken};
+    my $task_input = $res->{input};
+    say $task_token;
+    say $task_input;
+    
+} else {
+    warn $AWS::CLIWrapper::Error->{Code};
+    warn $AWS::CLIWrapper::Error->{Message};
+}
+

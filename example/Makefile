@@ -500,6 +500,11 @@ step_service_manifest:
 	jq -c 'del(.cloud_spec.variables,.cloud_spec.environments)' /tmp/ppare.json > /tmp/temp-ppare.json && mv /tmp/temp-ppare.json /tmp/ppare.json	
 	jq '{"execution_state": {}, "deployment_spec": .deployment_spec, "state": {"cloud_spec_json": (.cloud_spec|tostring) }}' /tmp/ppare.json > /tmp/big.json
 
+.PHONY: simp_step_service_manifest
+simp_step_service_manifest:
+	yq -o=json -I=2 ${YAML_MANIFEST_SPEC_INPUT_FILENAME} > /tmp/ppare.json
+	jq -c 'del(.cloud_spec)' /tmp/ppare.json > /tmp/temp-ppare.json && mv /tmp/temp-ppare.json /tmp/ppare.json	
+	jq '.' /tmp/ppare.json > /tmp/big.json
 
 .PHONY: bucket
 bucket:
@@ -724,4 +729,13 @@ stub:
 		echo "Continuing"; \
 	fi
 
+
+.PHONY: put-activity
+put-activity: simp_step_service_manifest
+	# create the spec with contexts
+	# call the start step function with the input
+	echo starting-step-function
+	DEPLOYMENT_SPEC_JSON=$$(jq -n --argjson data "$$contexts" --argfile dspec /tmp/big.json '{"contexts": $$data, "deployment_spec": $$dspec.deployment_spec}'); \
+	STATE_MACHINE_ARN="arn:aws:states:us-east-1:612674644368:stateMachine:ActivityWorkflowExecutor"; \
+	aws stepfunctions start-execution --state-machine-arn $$STATE_MACHINE_ARN --input "$$DEPLOYMENT_SPEC_JSON";
 

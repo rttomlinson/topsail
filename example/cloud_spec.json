@@ -1,101 +1,1268 @@
-{
-    "Comment": "A simple AWS Step Functions state machine.",
-    "StartAt": "Validate Cloud Spec",
-    "States": {
-        "Validate Cloud Spec": {
-            "Type": "Task",
-            "Resource": "arn:aws:lambda:::function:mast-lambda",
-            "Parameters": {
-                "step_name": "validate_cloud_spec",
-                "cloud_spec_json.$": "$.cloud_spec_json",
-                "context": [
-                    "prestaging",
-                    "standby"
+perl /Users/rtomlinson/Documents/rttomlinson/topsail/topsail/bin/run_topsail --deployment-spec-json '{
+    "deploy": {
+        "StartAt": "Validate Cloud Spec",
+        "States": {
+            "Create ECS Service": {
+                "OnError": "Scale ECS Service Tasks to 0",
+                "scriptString": "#!/usr/bin/env bash\nset -e -o pipefail\n# TMPDIR probably needs to come from some system setting or using docker volumes\n# Also need to figure out wtf HOME is for different systems - Probably needs to be set at the beginning also depending on the user\n# Maybe we set the user for the entire execution or generate a new one. Seems messy\n# You are given a tempdir location as an env var mkdir -p \"${HOME}/tmp\"\n\ndocker run -i --init --mount type=bind,source=\"${HOST_TEMPORARY_DIRECTORY}\",target=$TMPDIR --mount type=bind,source=\"${HOME}/.aws\",target=/root/.aws rttomlinson/mast create_ecs_service \\\n    --cloud-spec-json \"${cloud_spec_json}\" \\\n    --poll-interval ${poll_interval} \\\n    --task-definition-arn ${task_definition_arn} \\\n    --output-file \"$OUTPUT_FILE\"\n",
+                "timeoutMillis": 30000,
+                "variables": [
+                    {
+                        "value": "${workflow.standby_cloud_spec.cloud_spec_json}",
+                        "name": "cloud_spec_json"
+                    },
+                    {
+                        "value": 10,
+                        "name": "poll_interval"
+                    },
+                    {
+                        "name": "task_definition_arn",
+                        "value": "${workflow.task_definition.task_definition_arn}"
+                    }
                 ],
-                "output_file": "/tmp/deployment.json",
+                "Next": "Python Create ECS Task Definition"
             },
-            "ResultPath": "$.standby_cloud_spec",
-            "Next": "Create ECS Task Definition",
-        },
-        "Create ECS Task Definition": {
-            "Type": "Task",
-            "Resource": "arn:aws:lambda:::function:mast-lambda",
-            "Parameters": {
-                "step_name": "create_ecs_task_definition",
-                "cloud_spec_json.$": "$.standby_cloud_spec.cloud_spec_json",
-                "output_file": "/tmp/deployment.json",
-                "cloud_spec_url": "https://raw.githubusercontent.com/yahooo",
+            "Create ELB Target Groups": {
+                "OnError": "Delete ELB Target Groups",
+                "scriptString": "#!/usr/bin/env bash\nset -e -o pipefail\n# TMPDIR probably needs to come from some system setting or using docker volumes\n# Also need to figure out wtf HOME is for different systems - Probably needs to be set at the beginning also depending on the user\n# Maybe we set the user for the entire execution or generate a new one. Seems messy\n# You are given a tempdir location as an env var mkdir -p \"${HOME}/tmp\"\ndocker run -i --init --mount type=bind,source=\"${HOME}/.aws\",target=/root/.aws rttomlinson/mast create_elb_target_groups \\\n    --cloud-spec-json \"${cloud_spec_json}\"\n",
+                "timeoutMillis": 30000,
+                "variables": [
+                    {
+                        "value": "${workflow.standby_cloud_spec.cloud_spec_json}",
+                        "name": "cloud_spec_json"
+                    }
+                ],
+                "Next": "Update ELB Listener Rules"
             },
-            "ResultPath": "$.ecs_task_definition",
-            "Next": "Create ELB Target Groups",
-        },
-        "Create ELB Target Groups": {
-            "Type": "Task",
-            "Resource": "arn:aws:lambda:::function:mast-lambda",
-            "Parameters": {
-                "step_name": "create_elb_target_groups",
-                "cloud_spec_json.$": "$.standby_cloud_spec.cloud_spec_json",
+            "Update ELB Listener Rules": {
+                "Next": "Create ECS Service",
+                "variables": [
+                    {
+                        "name": "cloud_spec_json",
+                        "value": "${workflow.standby_cloud_spec.cloud_spec_json}"
+                    }
+                ],
+                "OnErrorContext": [
+                    "rollback",
+                    "update_elb_listener_start"
+                ],
+                "timeoutMillis": 30000,
+                "scriptString": "#!/usr/bin/env bash\nset -e -o pipefail\n# TMPDIR probably needs to come from some system setting or using docker volumes\n# Also need to figure out wtf HOME is for different systems - Probably needs to be set at the beginning also depending on the user\n# Maybe we set the user for the entire execution or generate a new one. Seems messy\n# You are given a tempdir location as an env var mkdir -p \"${HOME}/tmp\"\n\ndocker run -i --init --mount type=bind,source=\"${HOME}/.aws\",target=/root/.aws rttomlinson/mast update_elb_listener_rules \\\n    --cloud-spec-json \"${cloud_spec_json}\"\n"
             },
-            "ResultPath": "$.elb_target_groups",
-            "Next": "Update ELB Listener Rules",
-        },
-        "Update ELB Listener Rules": {
-            "Type": "Task",
-            "Resource": "arn:aws:lambda:::function:mast-lambda",
-            "Parameters": {
-                "step_name": "update_elb_listener_rules",
-                "cloud_spec_json.$": "$.standby_cloud_spec.cloud_spec_json",
+            "Python Create ECS Task Definition": {
+                "variables": [
+                    {
+                        "value": "${workflow.context}",
+                        "name": "context"
+                    },
+                    {
+                        "value": "${workflow.standby_cloud_spec.cloud_spec_json}",
+                        "name": "cloud_spec_json"
+                    }
+                ],
+                "ResultPath": "python_task_definition",
+                "End": true,
+                "timeoutMillis": 30000,
+                "outputVars": "python_task_definition",
+                "scriptString": "#!/usr/bin/env python\nprint(\"I'm a neat python script\")\n",
+                "Type": "Task"
             },
-            "ResultPath": "$.elb_listener_rules",
-            "Next": "Create ECS Service",
-        },
-        "Create ECS Service": {
-            "Type": "Task",
-            "Resource": "arn:aws:lambda:::function:mast-lambda",
-            "Parameters": {
-                "step_name": "lambda_create_ecs_service",
-                "cloud_spec_json.$": "$.standby_cloud_spec.cloud_spec_json",
-                "poll_interval": 10,
-                "task_definition_arn.$": "$.ecs_task_definition.task_definition_arn",
-                "output_file": "/tmp/deployment.json",
+            "Validate Cloud Spec": {
+                "variables": [
+                    {
+                        "name": "context",
+                        "value": "[\"prestaging\", \"standby\"]"
+                    },
+                    {
+                        "name": "cloud_spec_json",
+                        "value": "${workflow.cloud_spec_json}"
+                    }
+                ],
+                "OnErrorContext": [
+                    "abort"
+                ],
+                "ResultPath": "standby_cloud_spec",
+                "End": true,
+                "Type": "Task",
+                "timeoutMillis": 30000,
+                "scriptString": "#!/usr/bin/env perl\n\nuse v5.030;\nuse strictures 2;\nuse warnings;\nno warnings 'uninitialized';\nuse JSON::PP;\n\n\n#suffering from buffering\n$|=1;\nsay \"hello perl\";\nmy $contexts = decode_json $ENV{context};\n\nmy $TMPDIR = $ENV{TMPDIR};\nmy $OUTPUT_FILE = $ENV{OUTPUT_FILE};\nmy $HOST_TEMPORARY_DIRECTORY = $ENV{HOST_TEMPORARY_DIRECTORY};\nmy $cloud_spec_json = $ENV{cloud_spec_json};\nmy $HOME = $ENV{HOME};\n\n# docker run command\nmy $func_to_execute = \"docker run -i --init --mount type=bind,source=\" . \"\\\"${HOST_TEMPORARY_DIRECTORY}\\\"\" . \",target=$TMPDIR\" . \" rttomlinson/mast \" . \"validate_cloud_spec \";\nfor my $context (@{$contexts}) {\n  $func_to_execute = $func_to_execute . \"--context ${context} \";\n}\n\n$func_to_execute = $func_to_execute . \"--output-file \\\"${OUTPUT_FILE}\\\" \";\n$func_to_execute = $func_to_execute . \"--cloud-spec-json '${cloud_spec_json}'\";\n\nsay $func_to_execute;\n\nsystem(\"$func_to_execute\") == 0\n  or die \"system perl failed: $?\";\n# Do something with the output? Put it where the executor said to\n1;\n"
             },
-            "ResultPath": "$.ecs_service",
-            "Next": "Lambda Callback",
+            "Create ECS Task Definition": {
+                "timeoutMillis": 30000,
+                "scriptString": "#!/usr/bin/env bash\nset -e -o pipefail\n# TMPDIR probably needs to come from some system setting or using docker volumes\n# Also need to figure out wtf HOME is for different systems - Probably needs to be set at the beginning also depending on the user\n# Maybe we set the user for the entire execution or generate a new one. Seems messy\n# You are given a tempdir location as an env var mkdir -p \"${HOME}/tmp\"\n\ndocker run -i --init --mount type=bind,source=\"${HOST_TEMPORARY_DIRECTORY}\",target=$TMPDIR --mount type=bind,source=\"${HOME}/.aws\",target=/root/.aws rttomlinson/mast create_ecs_task_definition \\\n    --cloud-spec-url \"active\" \\\n    --output-file \"$OUTPUT_FILE\" \\\n    --cloud-spec-json \"${cloud_spec_json}\"\n\n# I need to somehow get the file out of this execution and into cloud_spec_json\n# You have to look up the API and realize that this returns cloud_spec_json\n    \n# will always return key-value pairs as strings\n# turn this info json and encode it and set it as the output value to outputVars\n\necho \"${HOME}${OUTPUT_FILE}\"\n",
+                "Type": "Task",
+                "Next": "Create ELB Target Groups",
+                "ResultPath": "task_definition",
+                "OnErrorContext": [
+                    "abort"
+                ],
+                "variables": [
+                    {
+                        "value": "${workflow.standby_cloud_spec.cloud_spec_json}",
+                        "name": "cloud_spec_json"
+                    }
+                ]
+            }
         },
-        "Lambda Callback": {
-            "Type": "Task",
-            "Resource": "arn:${AWS::Partition}:states:::lambda:invoke.waitForTaskToken",
-            "Parameters": {
-                "FunctionName": "arn:aws:lambda:::function:LambdaApprovalFunction",
-                "Payload": {
-                    "ExecutionContext.$": "$$",
-                    "APIGatewayEndpoint": "https://${ExecutionApi}.execute-api.${AWS::Region}.amazonaws.com/states",
-                },
-            },
-            "Next": "ManualApprovalChoiceState",
-        },
-        "ManualApprovalChoiceState": {
-            "Type": "Choice",
-            "Choices": [
-                {
-                    "Variable": "$.Status",
-                    "StringEquals": "Approved! Task approved by ${Email}",
-                    "Next": "ApprovedPassState",
-                },
-                {
-                    "Variable": "$.Status",
-                    "StringEquals": "Rejected! Task rejected by ${Email}",
-                    "Next": "RejectedPassState",
-                },
+        "TMPDIR": "/tmp",
+        "RoleArn": "arn:aws:iam::599617893694:role/default-step-function-lambda-role",
+        "variables": {
+            "banana": [
+                "hello",
+                "banana"
             ],
-        },
-        "ApprovedPassState": {
-            "Type": "Pass",
-            "End": true
-        },
-        "RejectedPassState": {
-            "Type": "Pass",
-            "End": true
-        },
+            "standby_cloud_spec_context": [
+                "prestaging",
+                "standby"
+            ],
+            "yoyoyo": "just some val",
+            "cloud_spec_json": {
+                "environments": [
+                    "prestaging",
+                    "staging"
+                ],
+                "verification": {
+                    "response": {
+                        "body": "/buildVersion:[ ]+\"${BUILD_VERSION}\"/",
+                        "status": 200
+                    },
+                    "request": {
+                        "url": {
+                            "staging": {
+                                "staging": "example-lb-int-staging",
+                                "prestaging": "default-application-lb"
+                            },
+                            "prestaging": {
+                                "prestaging": "default-application-lb",
+                                "staging": "example-lb-int-staging"
+                            }
+                        },
+                        "headers": {
+                            "staging": [
+                                "host: example1.staging.foo.com"
+                            ],
+                            "prestaging": [
+                                "host: example1.prestaging.foo.com"
+                            ]
+                        },
+                        "method": "GET"
+                    }
+                },
+                "version": "1.0",
+                "aws": {
+                    "ecs": {
+                        "taskDefinition": {
+                            "memory": {
+                                "prestaging": "512mb",
+                                "staging": "1gb"
+                            },
+                            "requiresCompatibilities": [
+                                "FARGATE"
+                            ],
+                            "cpu": {
+                                "prestaging": "0.25 vCPU",
+                                "staging": "0.5 vCPU"
+                            },
+                            "family": "example",
+                            "containerDefinitions": [
+                                {
+                                    "portMappings": [
+                                        {
+                                            "containerPort": 80,
+                                            "protocol": "tcp"
+                                        }
+                                    ],
+                                    "essential": true,
+                                    "image": "nginxdemos/hello:latest",
+                                    "name": "example",
+                                    "environment": [
+                                        {
+                                            "name": "CLOUD_ENV",
+                                            "value": {
+                                                "prestaging": "steelix",
+                                                "staging": "staging"
+                                            }
+                                        }
+                                    ],
+                                    "privileged": false,
+                                    "readonlyRootFilesystem": false,
+                                    "logConfiguration": {
+                                        "logDriver": "awslogs",
+                                        "options": {
+                                            "awslogs-stream-prefix": "nginx",
+                                            "awslogs-group": "example",
+                                            "awslogs-create-group": "true",
+                                            "awslogs-region": "us-east-1"
+                                        }
+                                    }
+                                }
+                            ],
+                            "networkMode": "awsvpc",
+                            "taskRoleArn": {
+                                "staging": "arn:aws:iam::375779284321:role/example_staging_ecs_TR",
+                                "prestaging": "arn:aws:iam::375779284321:role/default-task-role"
+                            },
+                            "executionRoleArn": {
+                                "prestaging": "arn:aws:iam::375779284321:role/default-task-execution-role",
+                                "staging": "arn:aws:iam::375779284321:role/example_staging_ecs_TER"
+                            }
+                        },
+                        "service": {
+                            "healthCheckGracePeriod": 30,
+                            "enableExecuteCommand": {
+                                "staging": true,
+                                "prestaging": true
+                            },
+                            "cluster": {
+                                "staging": "default",
+                                "prestaging": "default"
+                            },
+                            "networkConfiguration": {
+                                "awsvpcConfiguration": {
+                                    "securityGroups": {
+                                        "prestaging": [
+                                            "sg-0ee867a7be90d6a9e"
+                                        ],
+                                        "staging": [
+                                            "sg-0802e31816e48501a"
+                                        ]
+                                    },
+                                    "assignPublicIp": "DISABLED",
+                                    "subnets": {
+                                        "prestaging": [
+                                            "subnet-00d7e66797571610e",
+                                            "subnet-0538895c88a70550e"
+                                        ],
+                                        "staging": [
+                                            "subnet-1de9466b",
+                                            "subnet-4c3dfb14",
+                                            "subnet-e3c555de",
+                                            "subnet-60cf3d4a"
+                                        ]
+                                    }
+                                }
+                            },
+                            "scalableTarget": {
+                                "MaxCapacity": 50,
+                                "ScalableDimension": "ecs:service:DesiredCount",
+                                "MinCapacity": {
+                                    "prestaging": 1,
+                                    "staging": 1
+                                },
+                                "ResourceId": {
+                                    "prestaging": "service/default/example1",
+                                    "staging": "service/default/example1"
+                                },
+                                "ServiceNamespace": "ecs"
+                            },
+                            "name": "example1",
+                            "loadBalancers": [
+                                {
+                                    "containerName": "example",
+                                    "targetGroup": {
+                                        "allowExisting": false,
+                                        "name": {
+                                            "staging": "example-staging-111",
+                                            "prestaging": "example-prestaging-111"
+                                        }
+                                    },
+                                    "containerPort": 80,
+                                    "loadBalancerName": {
+                                        "prestaging": "default-application-lb",
+                                        "staging": "example-lb-int-staging"
+                                    }
+                                }
+                            ],
+                            "launchType": "FARGATE",
+                            "desiredCount": {
+                                "staging": "auto",
+                                "prestaging": 1
+                            },
+                            "allowExisting": false,
+                            "scalingPolicy": {
+                                "PolicyType": "TargetTrackingScaling",
+                                "ScalableDimension": "ecs:service:DesiredCount",
+                                "PolicyName": {
+                                    "staging": "example-staging-1",
+                                    "prestaging": "example-prestaging-1"
+                                },
+                                "ResourceId": {
+                                    "prestaging": "service/default/example1",
+                                    "staging": "service/default/example1"
+                                },
+                                "ServiceNamespace": "ecs",
+                                "TargetTrackingScalingPolicyConfiguration": {
+                                    "PredefinedMetricSpecification": {
+                                        "PredefinedMetricType": "ECSServiceAverageCPUUtilization"
+                                    },
+                                    "TargetValue": 75,
+                                    "ScaleInCooldown": 600,
+                                    "ScaleOutCooldown": 60
+                                }
+                            }
+                        }
+                    },
+                    "region": "us-east-1",
+                    "elb": {
+                        "loadBalancers": [
+                            {
+                                "listeners": [
+                                    {
+                                        "rules": [
+                                            {
+                                                "action": {
+                                                    "type": "forward",
+                                                    "targetGroupName": {
+                                                        "prestaging": "example-prestaging-111",
+                                                        "staging": "example-staging-111"
+                                                    }
+                                                },
+                                                "conditions": {
+                                                    "prestaging": [
+                                                        {
+                                                            "Field": "host-header",
+                                                            "Values": [
+                                                                {
+                                                                    "staging": "example-lb-int-staging",
+                                                                    "prestaging": {
+                                                                        "standby": "default-application-lb-249232693.us-east-1.elb.amazonaws.com",
+                                                                        "active": "default-application-lb-249232693.us-east-1.elb.amazonaws.com"
+                                                                    }
+                                                                }
+                                                            ]
+                                                        }
+                                                    ],
+                                                    "staging": [
+                                                        {
+                                                            "Values": [
+                                                                {
+                                                                    "prestaging": {
+                                                                        "standby": "default-application-lb-249232693.us-east-1.elb.amazonaws.com",
+                                                                        "active": "default-application-lb-249232693.us-east-1.elb.amazonaws.com"
+                                                                    },
+                                                                    "staging": "example-lb-int-staging"
+                                                                }
+                                                            ],
+                                                            "Field": "host-header"
+                                                        }
+                                                    ]
+                                                },
+                                                "placement": "end"
+                                            }
+                                        ],
+                                        "protocol": "HTTP",
+                                        "port": 8080
+                                    }
+                                ],
+                                "name": {
+                                    "prestaging": "default-application-lb",
+                                    "staging": "example-lb-int-staging"
+                                },
+                                "type": "application",
+                                "securityGroups": {
+                                    "prestaging": "sg-0f8cca4c407546a36",
+                                    "staging": "sg-09a8341095bfd82c8"
+                                }
+                            }
+                        ],
+                        "targetGroups": [
+                            {
+                                "name": {
+                                    "staging": "example-staging-111",
+                                    "prestaging": "example-prestaging-111"
+                                },
+                                "protocol": "HTTP",
+                                "port": 80,
+                                "healthCheck": {
+                                    "path": "/",
+                                    "port": 80,
+                                    "healthyThreshold": 5,
+                                    "matcher": {
+                                        "HttpCode": 200
+                                    },
+                                    "unhealthyThreshold": 2,
+                                    "interval": 30,
+                                    "timeout": 5,
+                                    "protocol": "HTTP"
+                                }
+                            }
+                        ]
+                    }
+                },
+                "variables": {
+                    "ecsClusterName": "default",
+                    "taskRoleArn": {
+                        "prestaging": "arn:aws:iam::375779284321:role/default-task-role",
+                        "staging": "arn:aws:iam::375779284321:role/example_staging_ecs_TR"
+                    },
+                    "networkConfiguration": {
+                        "awsvpcConfiguration": {
+                            "assignPublicIp": "DISABLED",
+                            "subnets": {
+                                "staging": [
+                                    "subnet-1de9466b",
+                                    "subnet-4c3dfb14",
+                                    "subnet-e3c555de",
+                                    "subnet-60cf3d4a"
+                                ],
+                                "prestaging": [
+                                    "subnet-00d7e66797571610e",
+                                    "subnet-0538895c88a70550e"
+                                ]
+                            },
+                            "securityGroups": {
+                                "prestaging": [
+                                    "sg-0ee867a7be90d6a9e"
+                                ],
+                                "staging": [
+                                    "sg-0802e31816e48501a"
+                                ]
+                            }
+                        }
+                    },
+                    "executionRoleArn": {
+                        "prestaging": "arn:aws:iam::375779284321:role/default-task-execution-role",
+                        "staging": "arn:aws:iam::375779284321:role/example_staging_ecs_TER"
+                    },
+                    "loadBalancerName": {
+                        "staging": "example-lb-int-staging",
+                        "prestaging": "default-application-lb"
+                    },
+                    "domainName": {
+                        "staging": "example-lb-int-staging",
+                        "prestaging": {
+                            "standby": "default-application-lb-249232693.us-east-1.elb.amazonaws.com",
+                            "active": "default-application-lb-249232693.us-east-1.elb.amazonaws.com"
+                        }
+                    },
+                    "targetGroupName": {
+                        "prestaging": "example-prestaging-111",
+                        "staging": "example-staging-111"
+                    },
+                    "ecsServiceName": "example1"
+                }
+            }
+        }
     },
-},
+    "rollback": {
+        "StartAt": "Validate Cloud Spec",
+        "variables": {
+            "cloud_spec_json": {
+                "aws": {
+                    "elb": {
+                        "loadBalancers": [
+                            {
+                                "securityGroups": {
+                                    "staging": "sg-09a8341095bfd82c8",
+                                    "prestaging": "sg-0f8cca4c407546a36"
+                                },
+                                "type": "application",
+                                "name": {
+                                    "prestaging": "default-application-lb",
+                                    "staging": "example-lb-int-staging"
+                                },
+                                "listeners": [
+                                    {
+                                        "port": 8080,
+                                        "protocol": "HTTP",
+                                        "rules": [
+                                            {
+                                                "placement": "end",
+                                                "conditions": {
+                                                    "staging": [
+                                                        {
+                                                            "Field": "host-header",
+                                                            "Values": [
+                                                                {
+                                                                    "prestaging": {
+                                                                        "standby": "default-application-lb-249232693.us-east-1.elb.amazonaws.com",
+                                                                        "active": "default-application-lb-249232693.us-east-1.elb.amazonaws.com"
+                                                                    },
+                                                                    "staging": "example-lb-int-staging"
+                                                                }
+                                                            ]
+                                                        }
+                                                    ],
+                                                    "prestaging": [
+                                                        {
+                                                            "Values": [
+                                                                {
+                                                                    "prestaging": {
+                                                                        "active": "default-application-lb-249232693.us-east-1.elb.amazonaws.com",
+                                                                        "standby": "default-application-lb-249232693.us-east-1.elb.amazonaws.com"
+                                                                    },
+                                                                    "staging": "example-lb-int-staging"
+                                                                }
+                                                            ],
+                                                            "Field": "host-header"
+                                                        }
+                                                    ]
+                                                },
+                                                "action": {
+                                                    "type": "forward",
+                                                    "targetGroupName": {
+                                                        "prestaging": "example-prestaging-111",
+                                                        "staging": "example-staging-111"
+                                                    }
+                                                }
+                                            }
+                                        ]
+                                    }
+                                ]
+                            }
+                        ],
+                        "targetGroups": [
+                            {
+                                "name": {
+                                    "staging": "example-staging-111",
+                                    "prestaging": "example-prestaging-111"
+                                },
+                                "healthCheck": {
+                                    "unhealthyThreshold": 2,
+                                    "path": "/",
+                                    "port": 80,
+                                    "matcher": {
+                                        "HttpCode": 200
+                                    },
+                                    "healthyThreshold": 5,
+                                    "interval": 30,
+                                    "protocol": "HTTP",
+                                    "timeout": 5
+                                },
+                                "port": 80,
+                                "protocol": "HTTP"
+                            }
+                        ]
+                    },
+                    "ecs": {
+                        "service": {
+                            "loadBalancers": [
+                                {
+                                    "loadBalancerName": {
+                                        "prestaging": "default-application-lb",
+                                        "staging": "example-lb-int-staging"
+                                    },
+                                    "targetGroup": {
+                                        "name": {
+                                            "staging": "example-staging-111",
+                                            "prestaging": "example-prestaging-111"
+                                        },
+                                        "allowExisting": false
+                                    },
+                                    "containerPort": 80,
+                                    "containerName": "example"
+                                }
+                            ],
+                            "scalableTarget": {
+                                "ScalableDimension": "ecs:service:DesiredCount",
+                                "MaxCapacity": 50,
+                                "MinCapacity": {
+                                    "prestaging": 1,
+                                    "staging": 1
+                                },
+                                "ResourceId": {
+                                    "prestaging": "service/default/example1",
+                                    "staging": "service/default/example1"
+                                },
+                                "ServiceNamespace": "ecs"
+                            },
+                            "name": "example1",
+                            "networkConfiguration": {
+                                "awsvpcConfiguration": {
+                                    "subnets": {
+                                        "prestaging": [
+                                            "subnet-00d7e66797571610e",
+                                            "subnet-0538895c88a70550e"
+                                        ],
+                                        "staging": [
+                                            "subnet-1de9466b",
+                                            "subnet-4c3dfb14",
+                                            "subnet-e3c555de",
+                                            "subnet-60cf3d4a"
+                                        ]
+                                    },
+                                    "assignPublicIp": "DISABLED",
+                                    "securityGroups": {
+                                        "prestaging": [
+                                            "sg-0ee867a7be90d6a9e"
+                                        ],
+                                        "staging": [
+                                            "sg-0802e31816e48501a"
+                                        ]
+                                    }
+                                }
+                            },
+                            "cluster": {
+                                "staging": "default",
+                                "prestaging": "default"
+                            },
+                            "enableExecuteCommand": {
+                                "staging": true,
+                                "prestaging": true
+                            },
+                            "healthCheckGracePeriod": 30,
+                            "scalingPolicy": {
+                                "TargetTrackingScalingPolicyConfiguration": {
+                                    "ScaleOutCooldown": 60,
+                                    "ScaleInCooldown": 600,
+                                    "TargetValue": 75,
+                                    "PredefinedMetricSpecification": {
+                                        "PredefinedMetricType": "ECSServiceAverageCPUUtilization"
+                                    }
+                                },
+                                "ServiceNamespace": "ecs",
+                                "ResourceId": {
+                                    "staging": "service/default/example1",
+                                    "prestaging": "service/default/example1"
+                                },
+                                "PolicyName": {
+                                    "staging": "example-staging-1",
+                                    "prestaging": "example-prestaging-1"
+                                },
+                                "ScalableDimension": "ecs:service:DesiredCount",
+                                "PolicyType": "TargetTrackingScaling"
+                            },
+                            "allowExisting": false,
+                            "desiredCount": {
+                                "prestaging": 1,
+                                "staging": "auto"
+                            },
+                            "launchType": "FARGATE"
+                        },
+                        "taskDefinition": {
+                            "memory": {
+                                "staging": "1gb",
+                                "prestaging": "512mb"
+                            },
+                            "requiresCompatibilities": [
+                                "FARGATE"
+                            ],
+                            "cpu": {
+                                "staging": "0.5 vCPU",
+                                "prestaging": "0.25 vCPU"
+                            },
+                            "family": "example",
+                            "containerDefinitions": [
+                                {
+                                    "image": "nginxdemos/hello:latest",
+                                    "portMappings": [
+                                        {
+                                            "containerPort": 80,
+                                            "protocol": "tcp"
+                                        }
+                                    ],
+                                    "essential": true,
+                                    "readonlyRootFilesystem": false,
+                                    "logConfiguration": {
+                                        "logDriver": "awslogs",
+                                        "options": {
+                                            "awslogs-region": "us-east-1",
+                                            "awslogs-create-group": "true",
+                                            "awslogs-group": "example",
+                                            "awslogs-stream-prefix": "nginx"
+                                        }
+                                    },
+                                    "privileged": false,
+                                    "name": "example",
+                                    "environment": [
+                                        {
+                                            "value": {
+                                                "staging": "staging",
+                                                "prestaging": "steelix"
+                                            },
+                                            "name": "CLOUD_ENV"
+                                        }
+                                    ]
+                                }
+                            ],
+                            "taskRoleArn": {
+                                "prestaging": "arn:aws:iam::375779284321:role/default-task-role",
+                                "staging": "arn:aws:iam::375779284321:role/example_staging_ecs_TR"
+                            },
+                            "networkMode": "awsvpc",
+                            "executionRoleArn": {
+                                "staging": "arn:aws:iam::375779284321:role/example_staging_ecs_TER",
+                                "prestaging": "arn:aws:iam::375779284321:role/default-task-execution-role"
+                            }
+                        }
+                    },
+                    "region": "us-east-1"
+                },
+                "variables": {
+                    "ecsServiceName": "example1",
+                    "targetGroupName": {
+                        "staging": "example-staging-111",
+                        "prestaging": "example-prestaging-111"
+                    },
+                    "loadBalancerName": {
+                        "staging": "example-lb-int-staging",
+                        "prestaging": "default-application-lb"
+                    },
+                    "domainName": {
+                        "prestaging": {
+                            "active": "default-application-lb-249232693.us-east-1.elb.amazonaws.com",
+                            "standby": "default-application-lb-249232693.us-east-1.elb.amazonaws.com"
+                        },
+                        "staging": "example-lb-int-staging"
+                    },
+                    "executionRoleArn": {
+                        "prestaging": "arn:aws:iam::375779284321:role/default-task-execution-role",
+                        "staging": "arn:aws:iam::375779284321:role/example_staging_ecs_TER"
+                    },
+                    "networkConfiguration": {
+                        "awsvpcConfiguration": {
+                            "assignPublicIp": "DISABLED",
+                            "subnets": {
+                                "prestaging": [
+                                    "subnet-00d7e66797571610e",
+                                    "subnet-0538895c88a70550e"
+                                ],
+                                "staging": [
+                                    "subnet-1de9466b",
+                                    "subnet-4c3dfb14",
+                                    "subnet-e3c555de",
+                                    "subnet-60cf3d4a"
+                                ]
+                            },
+                            "securityGroups": {
+                                "staging": [
+                                    "sg-0802e31816e48501a"
+                                ],
+                                "prestaging": [
+                                    "sg-0ee867a7be90d6a9e"
+                                ]
+                            }
+                        }
+                    },
+                    "taskRoleArn": {
+                        "staging": "arn:aws:iam::375779284321:role/example_staging_ecs_TR",
+                        "prestaging": "arn:aws:iam::375779284321:role/default-task-role"
+                    },
+                    "ecsClusterName": "default"
+                },
+                "environments": [
+                    "prestaging",
+                    "staging"
+                ],
+                "version": "1.0",
+                "verification": {
+                    "response": {
+                        "status": 200,
+                        "body": "/buildVersion:[ ]+\"${BUILD_VERSION}\"/"
+                    },
+                    "request": {
+                        "url": {
+                            "prestaging": {
+                                "staging": "example-lb-int-staging",
+                                "prestaging": "default-application-lb"
+                            },
+                            "staging": {
+                                "prestaging": "default-application-lb",
+                                "staging": "example-lb-int-staging"
+                            }
+                        },
+                        "headers": {
+                            "prestaging": [
+                                "host: example1.prestaging.foo.com"
+                            ],
+                            "staging": [
+                                "host: example1.staging.foo.com"
+                            ]
+                        },
+                        "method": "GET"
+                    }
+                }
+            }
+        },
+        "RoleArn": "arn:aws:iam::599617893694:role/default-step-function-lambda-role",
+        "TMPDIR": "/tmp",
+        "States": {
+            "Scale ECS Service Tasks to 0": {
+                "scriptString": "#!/usr/bin/env bash\nset -e -o pipefail\n# TMPDIR probably needs to come from some system setting or using docker volumes\n# Also need to figure out wtf HOME is for different systems - Probably needs to be set at the beginning also depending on the user\n# Maybe we set the user for the entire execution or generate a new one. Seems messy\n# You are given a tempdir location as an env var mkdir -p \"${HOME}/tmp\"\n\ndocker run -i --init --mount type=bind,source=\"${HOME}/.aws\",target=/root/.aws rttomlinson/mast scale_ecs_service \\\n    --poll-interval 10 \\\n    --desired-count 0 \\\n    --cloud-spec-json \"${cloud_spec_json}\"\n",
+                "timeoutMillis": 30000,
+                "Type": "Task",
+                "variables": [
+                    {
+                        "name": "cloud_spec_json",
+                        "value": "${workflow.standby_cloud_spec.cloud_spec_json}"
+                    }
+                ],
+                "Next": "Delete ECS Service"
+            },
+            "ApprovedPassState": {
+                "Type": "Pass",
+                "End": true
+            },
+            "Validate Cloud Spec": {
+                "Next": {
+                    "standard": "Delete ECS Service",
+                    "update_elb_listener_start": "Delete ELB Listener Rules\"Delete ECS Service\"",
+                    "abort": "RejectedPassState"
+                },
+                "ResultPath": "standby_cloud_spec",
+                "scriptString": "#!/usr/bin/env perl\n\nuse v5.030;\nuse strictures 2;\nuse warnings;\nno warnings 'uninitialized';\nuse JSON::PP;\n\n\n#suffering from buffering\n$|=1;\nsay \"hello perl\";\nmy $contexts = decode_json $ENV{context};\n\nmy $TMPDIR = $ENV{TMPDIR};\nmy $OUTPUT_FILE = $ENV{OUTPUT_FILE};\nmy $HOST_TEMPORARY_DIRECTORY = $ENV{HOST_TEMPORARY_DIRECTORY};\nmy $cloud_spec_json = $ENV{cloud_spec_json};\nmy $HOME = $ENV{HOME};\n\n# docker run command\nmy $func_to_execute = \"docker run -i --init --mount type=bind,source=\" . \"\\\"${HOST_TEMPORARY_DIRECTORY}\\\"\" . \",target=$TMPDIR\" . \" rttomlinson/mast \" . \"validate_cloud_spec \";\nfor my $context (@{$contexts}) {\n  $func_to_execute = $func_to_execute . \"--context ${context} \";\n}\n\n$func_to_execute = $func_to_execute . \"--output-file \\\"${OUTPUT_FILE}\\\" \";\n$func_to_execute = $func_to_execute . \"--cloud-spec-json '${cloud_spec_json}'\";\n\nsay $func_to_execute;\n\nsystem(\"$func_to_execute\") == 0\n  or die \"system perl failed: $?\";\n\n# Do something with the output? Put it where the executor said to\n\n1;\n",
+                "timeoutMillis": 30000,
+                "Type": "Task",
+                "variables": [
+                    {
+                        "value": "[\"prestaging\", \"standby\"]",
+                        "name": "context"
+                    },
+                    {
+                        "value": "${workflow.cloud_spec_json}",
+                        "name": "cloud_spec_json"
+                    }
+                ]
+            },
+            "RejectedPassState": {
+                "Type": "Pass",
+                "End": true
+            },
+            "Delete ECS Service": {
+                "Type": "Task",
+                "timeoutMillis": 30000,
+                "scriptString": "#!/usr/bin/env bash\nset -e -o pipefail\n# TMPDIR probably needs to come from some system setting or using docker volumes\n# Also need to figure out wtf HOME is for different systems - Probably needs to be set at the beginning also depending on the user\n# Maybe we set the user for the entire execution or generate a new one. Seems messy\n# You are given a tempdir location as an env var mkdir -p \"${HOME}/tmp\"\n\ndocker run -i --init --mount type=bind,source=\"${HOME}/.aws\",target=/root/.aws rttomlinson/mast delete_ecs_service \\\n    --poll-interval 10 \\\n    --cloud-spec-json \"${cloud_spec_json}\"\n",
+                "variables": [
+                    {
+                        "value": "${workflow.standby_cloud_spec.cloud_spec_json}",
+                        "name": "cloud_spec_json"
+                    }
+                ],
+                "Next": "Delete ELB Listener Rules"
+            },
+            "Delete ELB Target Groups": {
+                "Type": "Task",
+                "scriptString": "#!/usr/bin/env bash\nset -e -o pipefail\n# TMPDIR probably needs to come from some system setting or using docker volumes\n# Also need to figure out wtf HOME is for different systems - Probably needs to be set at the beginning also depending on the user\n# Maybe we set the user for the entire execution or generate a new one. Seems messy\n# You are given a tempdir location as an env var mkdir -p \"${HOME}/tmp\"\n\n# check if target groups exist\n# if they do, delete them. else skip to the next ones\n\ndocker run -i --init --mount type=bind,source=\"${HOME}/.aws\",target=/root/.aws rttomlinson/mast delete_elb_target_groups \\\n    --cloud-spec-json \"${cloud_spec_json}\"\n",
+                "timeoutMillis": 30000,
+                "End": true,
+                "variables": [
+                    {
+                        "name": "cloud_spec_json",
+                        "value": "${workflow.standby_cloud_spec.cloud_spec_json}"
+                    }
+                ]
+            },
+            "Delete ELB Listener Rules": {
+                "variables": [
+                    {
+                        "name": "cloud_spec_json",
+                        "value": "${workflow.standby_cloud_spec.cloud_spec_json}"
+                    }
+                ],
+                "Next": "Delete ELB Target Groups",
+                "Type": "Task",
+                "scriptString": "#!/usr/bin/env bash\nset -e -o pipefail\n# TMPDIR probably needs to come from some system setting or using docker volumes\n# Also need to figure out wtf HOME is for different systems - Probably needs to be set at the beginning also depending on the user\n# Maybe we set the user for the entire execution or generate a new one. Seems messy\n# You are given a tempdir location as an env var mkdir -p \"${HOME}/tmp\"\n\ndocker run -i --init --mount type=bind,source=\"${HOME}/.aws\",target=/root/.aws rttomlinson/mast delete_elb_listener_rules \\\n    --cloud-spec-json \"${cloud_spec_json}\"\n",
+                "timeoutMillis": 30000
+            }
+        }
+    },
+    "abort": {
+        "StartAt": "AbortedState",
+        "States": {
+            "AbortedState": {
+                "End": true,
+                "Type": "Pass"
+            }
+        },
+        "RoleArn": "arn:aws:iam::599617893694:role/default-step-function-lambda-role",
+        "TMPDIR": "/tmp"
+    },
+    "delete": {
+        "States": {
+            "Scale ECS Service Tasks to 0": {
+                "Next": "Delete ECS Service",
+                "ResultPath": "task_definition",
+                "timeoutMillis": 30000,
+                "scriptString": "#!/usr/bin/env bash\nset -e -o pipefail\n# TMPDIR probably needs to come from some system setting or using docker volumes\n# Also need to figure out wtf HOME is for different systems - Probably needs to be set at the beginning also depending on the user\n# Maybe we set the user for the entire execution or generate a new one. Seems messy\n# You are given a tempdir location as an env var mkdir -p \"${HOME}/tmp\"\n\ndocker run -i --init --mount type=bind,source=\"${HOME}/.aws\",target=/root/.aws rttomlinson/mast scale_ecs_service \\\n    --poll-interval 10 \\\n    --desired-count 0 \\\n    --cloud-spec-json \"${cloud_spec_json}\"\n",
+                "Type": "Task",
+                "variables": [
+                    {
+                        "value": "${workflow.standby_cloud_spec.cloud_spec_json}",
+                        "name": "cloud_spec_json"
+                    }
+                ]
+            },
+            "Validate Cloud Spec": {
+                "Type": "Task",
+                "timeoutMillis": 30000,
+                "scriptString": "#!/usr/bin/env perl\n\nuse v5.030;\nuse strictures 2;\nuse warnings;\nno warnings 'uninitialized';\nuse JSON::PP;\n\n\n#suffering from buffering\n$|=1;\nsay \"hello perl\";\nmy $contexts = decode_json $ENV{context};\n\nmy $TMPDIR = $ENV{TMPDIR};\nmy $OUTPUT_FILE = $ENV{OUTPUT_FILE};\nmy $HOST_TEMPORARY_DIRECTORY = $ENV{HOST_TEMPORARY_DIRECTORY};\nmy $cloud_spec_json = $ENV{cloud_spec_json};\nmy $HOME = $ENV{HOME};\n\n# docker run command\nmy $func_to_execute = \"docker run -i --init --mount type=bind,source=\" . \"\\\"${HOST_TEMPORARY_DIRECTORY}\\\"\" . \",target=$TMPDIR\" . \" rttomlinson/mast \" . \"validate_cloud_spec \";\nfor my $context (@{$contexts}) {\n  $func_to_execute = $func_to_execute . \"--context ${context} \";\n}\n\n$func_to_execute = $func_to_execute . \"--output-file \\\"${OUTPUT_FILE}\\\" \";\n$func_to_execute = $func_to_execute . \"--cloud-spec-json '${cloud_spec_json}'\";\n\nsay $func_to_execute;\n\nsystem(\"$func_to_execute\") == 0\n  or die \"system perl failed: $?\";\n\n# Do something with the output? Put it where the executor said to\n\n1;\n",
+                "ResultPath": "standby_cloud_spec",
+                "Next": "Scale ECS Service Tasks to 0",
+                "variables": [
+                    {
+                        "value": "[\"prestaging\", \"standby\"]",
+                        "name": "context"
+                    },
+                    {
+                        "value": "${workflow.cloud_spec_json}",
+                        "name": "cloud_spec_json"
+                    }
+                ]
+            },
+            "Delete ELB Listener Rules": {
+                "Next": "Delete ELB Target Groups",
+                "variables": [
+                    {
+                        "value": "${workflow.standby_cloud_spec.cloud_spec_json}",
+                        "name": "cloud_spec_json"
+                    }
+                ],
+                "timeoutMillis": 30000,
+                "scriptString": "#!/usr/bin/env bash\nset -e -o pipefail\n# TMPDIR probably needs to come from some system setting or using docker volumes\n# Also need to figure out wtf HOME is for different systems - Probably needs to be set at the beginning also depending on the user\n# Maybe we set the user for the entire execution or generate a new one. Seems messy\n# You are given a tempdir location as an env var mkdir -p \"${HOME}/tmp\"\n\ndocker run -i --init --mount type=bind,source=\"${HOME}/.aws\",target=/root/.aws rttomlinson/mast delete_elb_listener_rules \\\n    --cloud-spec-json \"${cloud_spec_json}\"\n"
+            },
+            "Delete ECS Service": {
+                "Next": "Delete ELB Listener Rules",
+                "variables": [
+                    {
+                        "name": "cloud_spec_json",
+                        "value": "${workflow.standby_cloud_spec.cloud_spec_json}"
+                    }
+                ],
+                "scriptString": "#!/usr/bin/env bash\nset -e -o pipefail\n# TMPDIR probably needs to come from some system setting or using docker volumes\n# Also need to figure out wtf HOME is for different systems - Probably needs to be set at the beginning also depending on the user\n# Maybe we set the user for the entire execution or generate a new one. Seems messy\n# You are given a tempdir location as an env var mkdir -p \"${HOME}/tmp\"\n\ndocker run -i --init --mount type=bind,source=\"${HOME}/.aws\",target=/root/.aws rttomlinson/mast delete_ecs_service \\\n    --poll-interval 10 \\\n    --cloud-spec-json \"${cloud_spec_json}\"\n",
+                "timeoutMillis": 30000
+            },
+            "Delete ELB Target Groups": {
+                "scriptString": "#!/usr/bin/env bash\nset -e -o pipefail\n# TMPDIR probably needs to come from some system setting or using docker volumes\n# Also need to figure out wtf HOME is for different systems - Probably needs to be set at the beginning also depending on the user\n# Maybe we set the user for the entire execution or generate a new one. Seems messy\n# You are given a tempdir location as an env var mkdir -p \"${HOME}/tmp\"\n\ndocker run -i --init --mount type=bind,source=\"${HOME}/.aws\",target=/root/.aws rttomlinson/mast delete_elb_target_groups \\\n    --cloud-spec-json \"${cloud_spec_json}\"\n",
+                "timeoutMillis": 30000,
+                "End": true,
+                "variables": [
+                    {
+                        "name": "cloud_spec_json",
+                        "value": "${workflow.standby_cloud_spec.cloud_spec_json}"
+                    }
+                ]
+            }
+        },
+        "RoleArn": "arn:aws:iam::599617893694:role/default-step-function-lambda-role",
+        "TMPDIR": "/tmp",
+        "variables": {
+            "cloud_spec_json": {
+                "environments": [
+                    "prestaging",
+                    "staging"
+                ],
+                "verification": {
+                    "request": {
+                        "method": "GET",
+                        "headers": {
+                            "staging": [
+                                "host: example1.staging.foo.com"
+                            ],
+                            "prestaging": [
+                                "host: example1.prestaging.foo.com"
+                            ]
+                        },
+                        "url": {
+                            "prestaging": {
+                                "prestaging": "default-application-lb",
+                                "staging": "example-lb-int-staging"
+                            },
+                            "staging": {
+                                "prestaging": "default-application-lb",
+                                "staging": "example-lb-int-staging"
+                            }
+                        }
+                    },
+                    "response": {
+                        "body": "/buildVersion:[ ]+\"${BUILD_VERSION}\"/",
+                        "status": 200
+                    }
+                },
+                "version": "1.0",
+                "aws": {
+                    "elb": {
+                        "targetGroups": [
+                            {
+                                "name": {
+                                    "prestaging": "example-prestaging-111",
+                                    "staging": "example-staging-111"
+                                },
+                                "port": 80,
+                                "healthCheck": {
+                                    "unhealthyThreshold": 2,
+                                    "path": "/",
+                                    "port": 80,
+                                    "healthyThreshold": 5,
+                                    "matcher": {
+                                        "HttpCode": 200
+                                    },
+                                    "interval": 30,
+                                    "timeout": 5,
+                                    "protocol": "HTTP"
+                                },
+                                "protocol": "HTTP"
+                            }
+                        ],
+                        "loadBalancers": [
+                            {
+                                "name": {
+                                    "prestaging": "default-application-lb",
+                                    "staging": "example-lb-int-staging"
+                                },
+                                "listeners": [
+                                    {
+                                        "port": 8080,
+                                        "rules": [
+                                            {
+                                                "conditions": {
+                                                    "staging": [
+                                                        {
+                                                            "Field": "host-header",
+                                                            "Values": [
+                                                                {
+                                                                    "staging": "example-lb-int-staging",
+                                                                    "prestaging": {
+                                                                        "active": "default-application-lb-249232693.us-east-1.elb.amazonaws.com",
+                                                                        "standby": "default-application-lb-249232693.us-east-1.elb.amazonaws.com"
+                                                                    }
+                                                                }
+                                                            ]
+                                                        }
+                                                    ],
+                                                    "prestaging": [
+                                                        {
+                                                            "Field": "host-header",
+                                                            "Values": [
+                                                                {
+                                                                    "prestaging": {
+                                                                        "active": "default-application-lb-249232693.us-east-1.elb.amazonaws.com",
+                                                                        "standby": "default-application-lb-249232693.us-east-1.elb.amazonaws.com"
+                                                                    },
+                                                                    "staging": "example-lb-int-staging"
+                                                                }
+                                                            ]
+                                                        }
+                                                    ]
+                                                },
+                                                "placement": "end",
+                                                "action": {
+                                                    "targetGroupName": {
+                                                        "staging": "example-staging-111",
+                                                        "prestaging": "example-prestaging-111"
+                                                    },
+                                                    "type": "forward"
+                                                }
+                                            }
+                                        ],
+                                        "protocol": "HTTP"
+                                    }
+                                ],
+                                "securityGroups": {
+                                    "prestaging": "sg-0f8cca4c407546a36",
+                                    "staging": "sg-09a8341095bfd82c8"
+                                },
+                                "type": "application"
+                            }
+                        ]
+                    },
+                    "ecs": {
+                        "taskDefinition": {
+                            "taskRoleArn": {
+                                "staging": "arn:aws:iam::375779284321:role/example_staging_ecs_TR",
+                                "prestaging": "arn:aws:iam::375779284321:role/default-task-role"
+                            },
+                            "networkMode": "awsvpc",
+                            "executionRoleArn": {
+                                "prestaging": "arn:aws:iam::375779284321:role/default-task-execution-role",
+                                "staging": "arn:aws:iam::375779284321:role/example_staging_ecs_TER"
+                            },
+                            "memory": {
+                                "prestaging": "512mb",
+                                "staging": "1gb"
+                            },
+                            "requiresCompatibilities": [
+                                "FARGATE"
+                            ],
+                            "family": "example",
+                            "cpu": {
+                                "prestaging": "0.25 vCPU",
+                                "staging": "0.5 vCPU"
+                            },
+                            "containerDefinitions": [
+                                {
+                                    "readonlyRootFilesystem": false,
+                                    "logConfiguration": {
+                                        "options": {
+                                            "awslogs-create-group": "true",
+                                            "awslogs-group": "example",
+                                            "awslogs-stream-prefix": "nginx",
+                                            "awslogs-region": "us-east-1"
+                                        },
+                                        "logDriver": "awslogs"
+                                    },
+                                    "name": "example",
+                                    "environment": [
+                                        {
+                                            "value": {
+                                                "prestaging": "steelix",
+                                                "staging": "staging"
+                                            },
+                                            "name": "CLOUD_ENV"
+                                        }
+                                    ],
+                                    "privileged": false,
+                                    "portMappings": [
+                                        {
+                                            "containerPort": 80,
+                                            "protocol": "tcp"
+                                        }
+                                    ],
+                                    "essential": true,
+                                    "image": "nginxdemos/hello:latest"
+                                }
+                            ]
+                        },
+                        "service": {
+                            "scalingPolicy": {
+                                "PolicyName": {
+                                    "staging": "example-staging-1",
+                                    "prestaging": "example-prestaging-1"
+                                },
+                                "ScalableDimension": "ecs:service:DesiredCount",
+                                "PolicyType": "TargetTrackingScaling",
+                                "TargetTrackingScalingPolicyConfiguration": {
+                                    "TargetValue": 75,
+                                    "PredefinedMetricSpecification": {
+                                        "PredefinedMetricType": "ECSServiceAverageCPUUtilization"
+                                    },
+                                    "ScaleInCooldown": 600,
+                                    "ScaleOutCooldown": 60
+                                },
+                                "ServiceNamespace": "ecs",
+                                "ResourceId": {
+                                    "staging": "service/default/example1",
+                                    "prestaging": "service/default/example1"
+                                }
+                            },
+                            "allowExisting": false,
+                            "launchType": "FARGATE",
+                            "desiredCount": {
+                                "staging": "auto",
+                                "prestaging": 1
+                            },
+                            "name": "example1",
+                            "scalableTarget": {
+                                "ScalableDimension": "ecs:service:DesiredCount",
+                                "MaxCapacity": 50,
+                                "MinCapacity": {
+                                    "prestaging": 1,
+                                    "staging": 1
+                                },
+                                "ServiceNamespace": "ecs",
+                                "ResourceId": {
+                                    "staging": "service/default/example1",
+                                    "prestaging": "service/default/example1"
+                                }
+                            },
+                            "networkConfiguration": {
+                                "awsvpcConfiguration": {
+                                    "securityGroups": {
+                                        "prestaging": [
+                                            "sg-0ee867a7be90d6a9e"
+                                        ],
+                                        "staging": [
+                                            "sg-0802e31816e48501a"
+                                        ]
+                                    },
+                                    "subnets": {
+                                        "staging": [
+                                            "subnet-1de9466b",
+                                            "subnet-4c3dfb14",
+                                            "subnet-e3c555de",
+                                            "subnet-60cf3d4a"
+                                        ],
+                                        "prestaging": [
+                                            "subnet-00d7e66797571610e",
+                                            "subnet-0538895c88a70550e"
+                                        ]
+                                    },
+                                    "assignPublicIp": "DISABLED"
+                                }
+                            },
+                            "loadBalancers": [
+                                {
+                                    "loadBalancerName": {
+                                        "prestaging": "default-application-lb",
+                                        "staging": "example-lb-int-staging"
+                                    },
+                                    "containerName": "example",
+                                    "containerPort": 80,
+                                    "targetGroup": {
+                                        "allowExisting": false,
+                                        "name": {
+                                            "staging": "example-staging-111",
+                                            "prestaging": "example-prestaging-111"
+                                        }
+                                    }
+                                }
+                            ],
+                            "enableExecuteCommand": {
+                                "staging": true,
+                                "prestaging": true
+                            },
+                            "healthCheckGracePeriod": 30,
+                            "cluster": {
+                                "staging": "default",
+                                "prestaging": "default"
+                            }
+                        }
+                    },
+                    "region": "us-east-1"
+                },
+                "variables": {
+                    "targetGroupName": {
+                        "prestaging": "example-prestaging-111",
+                        "staging": "example-staging-111"
+                    },
+                    "ecsServiceName": "example1",
+                    "networkConfiguration": {
+                        "awsvpcConfiguration": {
+                            "securityGroups": {
+                                "prestaging": [
+                                    "sg-0ee867a7be90d6a9e"
+                                ],
+                                "staging": [
+                                    "sg-0802e31816e48501a"
+                                ]
+                            },
+                            "assignPublicIp": "DISABLED",
+                            "subnets": {
+                                "prestaging": [
+                                    "subnet-00d7e66797571610e",
+                                    "subnet-0538895c88a70550e"
+                                ],
+                                "staging": [
+                                    "subnet-1de9466b",
+                                    "subnet-4c3dfb14",
+                                    "subnet-e3c555de",
+                                    "subnet-60cf3d4a"
+                                ]
+                            }
+                        }
+                    },
+                    "ecsClusterName": "default",
+                    "taskRoleArn": {
+                        "prestaging": "arn:aws:iam::375779284321:role/default-task-role",
+                        "staging": "arn:aws:iam::375779284321:role/example_staging_ecs_TR"
+                    },
+                    "loadBalancerName": {
+                        "staging": "example-lb-int-staging",
+                        "prestaging": "default-application-lb"
+                    },
+                    "domainName": {
+                        "staging": "example-lb-int-staging",
+                        "prestaging": {
+                            "active": "default-application-lb-249232693.us-east-1.elb.amazonaws.com",
+                            "standby": "default-application-lb-249232693.us-east-1.elb.amazonaws.com"
+                        }
+                    },
+                    "executionRoleArn": {
+                        "prestaging": "arn:aws:iam::375779284321:role/default-task-execution-role",
+                        "staging": "arn:aws:iam::375779284321:role/example_staging_ecs_TER"
+                    }
+                }
+            }
+        },
+        "StartAt": "Validate Cloud Spec"
+    }
+}' --context deploy

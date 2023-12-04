@@ -1,0 +1,35 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "AWS Step Functions"
+Parameters:
+  ActivityArn:
+    Type: String
+  WorkflowRoleArn:
+    Description: "Shared permissions across workflow resources"
+    Type: "String"
+    MinLength: 1 # pseudo required
+    # MaxLength: 255,
+    # AllowedPattern: "^[a-zA-Z][-a-zA-Z0-9]*$"
+Resources:
+  LambdaStateMachine:
+    Type: AWS::StepFunctions::StateMachine
+    Properties:
+      RoleArn: !Ref WorkflowRoleArn
+      StateMachineName: ActivityWorkflowExecutor
+      DefinitionString:
+        Fn::Sub: |
+          {
+              "StartAt": "Step Functions Run Activity",
+              "States": {
+                  "Step Functions Run Activity": {
+                    "Type": "Task",
+                    "Resource": "${ActivityArn}",
+                    "HeartbeatSeconds": 60,
+                    "End": true 
+                  }
+              }
+          }
+
+# End state machine that publishes to Lambda and sends an email with the link for approval
+Outputs:
+  LambdaStateMachine:
+    Value: !Ref LambdaStateMachine

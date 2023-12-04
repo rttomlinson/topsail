@@ -9,6 +9,7 @@ $|=1;
 
 use Carp;
 use JSON::PP;
+use Scalar::Util 'looks_like_number';
 use Data::Dumper;
 use Data::UUID;
  
@@ -86,14 +87,18 @@ sub handle {
 
         # what if the value has 'single quotes in it'?
         # Oh, we need to do that heredoc thing?
+
         # We gotta do something weird here for escaping purposes
 
+        # "outputVars=\'$output_var\'\n"
+        # "cloud_spec_json=\'${cloud_spec_json}\'\n"
+        # "environment=\'prestaging\'\n"
         my @script_args = ();
         for my $arg (@{$arguments_as_env_vars}) {
             my $cloud_spec_json_arg;
 
             if($arg->{value} =~ /^\$\{([a-z\.A-Z_]+)\}?/){
-                    # we need to look up in state following pattern of characters. periods. and underscores. no restriction on double periods so we will fail
+                    say $1; # we need to look up in state following pattern of characters. periods. and underscores. no restriction on double periods so we will fail
                     my @lookup_keys = split(/\./, $1);
 
                     my $item = shift(@lookup_keys);
@@ -166,11 +171,11 @@ sub handle {
         } elsif($overall_state_of_the_workflow eq 'FAILURE') {
             if(defined $deployment_spec->{States}->{$step_name}->{OnErrorContext}) {
                 say "found next value $deployment_spec->{States}->{$step_name}->{OnErrorContext}";
-                return "CHANGE", $deployment_spec->{States}->{$step_name}->{OnErrorContext};
+                return "FAILURE", $deployment_spec->{States}->{$step_name}->{OnErrorContext};
 
             } else {
                 say "No errorContext found steps found";
-                return "CHANGE";
+                return "FAILURE";
             }
 
         } else {
@@ -228,14 +233,15 @@ my %payload = ();
 my $json_file = '/tmp/big.json';
 my $json_text = do { open my $fh, '<', $json_file; local $/; <$fh> };
 my $service_manifest = decode_json $json_text;
-# Is it okay to change the deployment context for each step? Probably but we should want to record it somewhere whats happening and _how_ we got to the deployment spec we're using
 
-my @deployment_contexts = ("deploy");
-my $overall_state_of_the_system = "";
+
+my @deployment_contexts = ("delete");
+my $overall_state_of_the_system = "NORMAL";
 # Need to be env var equivalents
 ### "deploy" will need to be removed. since itself is context
 ### We do this is everything is a-ok
 my $deployment_spec = collapser(\@deployment_contexts, $service_manifest->{deployment_spec});
+
 
 my @pipeline_variable_keys = keys %{$deployment_spec->{variables}};
 for my $pipeline_variable_key (@pipeline_variable_keys) {
@@ -250,31 +256,19 @@ for my $pipeline_variable_key (@pipeline_variable_keys) {
 
 # grab variables here?
 $DB::single=1;
-my $deployment_contexts = \@deployment_contexts;
+my $next_deployment_contexts;
 while(1) {
     #decider
-    my $deployment_spec = collapser($deployment_contexts, $service_manifest->{deployment_spec});
 
-    my @pipeline_variable_keys = keys %{$deployment_spec->{variables}};
-    for my $pipeline_variable_key (@pipeline_variable_keys) {
-        my $val_key_type = ref $deployment_spec->{variables}->{$pipeline_variable_key};
-        if($val_key_type eq '') {
-            $payload{$pipeline_variable_key} = $deployment_spec->{variables}->{$pipeline_variable_key};
-        } else {
-            # if hash or array, then encode_json
-            $payload{$pipeline_variable_key} = encode_json $deployment_spec->{variables}->{$pipeline_variable_key};
-        }
-    }
-
-    if($overall_state_of_the_system eq '') {
+    if($overall_state_of_the_system eq 'NORMAL') {
         my ($new_overall_state_of_the_system, $new_next_deployment_contexts) = handle($service_manifest, \%payload, $deployment_spec);
         $overall_state_of_the_system = $new_overall_state_of_the_system if defined $new_overall_state_of_the_system;
-        $deployment_contexts = $new_next_deployment_contexts if defined $new_next_deployment_contexts;
-    } elsif($overall_state_of_the_system eq 'CHANGE') {
+        $next_deployment_contexts = $new_next_deployment_contexts if defined $new_next_deployment_contexts;
+    } elsif($overall_state_of_the_system eq 'FAILURE') {
         say "one of the steps failed";
         my ($new_overall_state_of_the_system, $new_next_deployment_contexts) = handle($service_manifest, \%payload, $deployment_spec);
         $overall_state_of_the_system = $new_overall_state_of_the_system if defined $new_overall_state_of_the_system;
-        $deployment_contexts = $new_next_deployment_contexts if defined $new_next_deployment_contexts;
+        $next_deployment_contexts = $new_next_deployment_contexts if defined $new_next_deployment_contexts;
         say "we should show you the logs";
         last;
     } elsif($overall_state_of_the_system eq 'END') {

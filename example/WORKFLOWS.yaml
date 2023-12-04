@@ -10,6 +10,10 @@ Parameters:
     AllowedPattern: "^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\\.[a-zA-Z0-9-.]+$"
     ConstraintDescription: Must be a valid email address.
 Resources:
+  BasicStepFunctionActivity:
+    Type: AWS::StepFunctions::Activity
+    Properties:
+      Name: basic-activity
   SharedWorkflowResources:
     Type: AWS::CloudFormation::Stack
     Properties:
@@ -33,3 +37,15 @@ Resources:
       Parameters:
         WorkflowRoleArn: !GetAtt SharedWorkflowResources.Outputs.RoleArn
         Email: !Ref Email
+  ActivityWorkflow:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Sub https://s3.amazonaws.com/${TemplateBucketName}/ACTIVITY_WORKFLOW.yaml
+      TimeoutInMinutes: "60"
+      Parameters:
+        WorkflowRoleArn: !GetAtt SharedWorkflowResources.Outputs.RoleArn
+        ActivityArn: !Ref BasicStepFunctionActivity
+Outputs:
+  BasicStepFunctionActivityArn:
+    Description: step function activity arn for script runner
+    Value: !Ref BasicStepFunctionActivity

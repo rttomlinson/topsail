@@ -19,7 +19,7 @@ phases:
     name: Set up new ECS service
     steps:
     - type: BARRIER
-      name: Synchronize with clari-graphql before deployment
+      name: Synchronize with foo-graphql before deployment
       properties:
         identifier: synchronize-before-deployment
         timeoutMillis: 10800000
@@ -70,13 +70,13 @@ phases:
       - name: docker_username
         value: ${app.defaults.DOCKER_HUB_USERNAME}
       - name: docker_password
-        value: ${secrets.getValue("Docker Hub password for harnessclari")}
+        value: ${secrets.getValue("Docker Hub password for harnessfoo")}
       - name: artifactory_docker_registry_fqdn
         value: ${app.defaults.ARTIFACTORY_DOCKER_REGISTRY_FQDN}
       - name: artifactory_docker_registry_token
         value: ${secrets.getValue("Artifactory token")}
       - name: github_token
-        value: ${secrets.getValue("Github auth token for clarius-deploy")}
+        value: ${secrets.getValue("Github auth token for foous-deploy")}
     - type: SHELL_SCRIPT
       name: check_if_service_and_target_groups_already_created
       properties:
@@ -100,7 +100,7 @@ phases:
       - name: service_spec
         value: ${context.meta.service_spec_json}
     - type: BARRIER
-      name: Sync with clari-graphql before creating resources
+      name: Sync with foo-graphql before creating resources
       properties:
         identifier: synchronize-before-creating-any-resources
         templateUuid: null
@@ -345,7 +345,7 @@ phases:
       - name: environment
         value: ${workflow.variables.environment}
       - name: standby_url
-        value: https://app-test.clari.com
+        value: https://app-test.foo.com
       - name: harness_api_key
         value: ${secrets.getValue("Harness API key for Jenkins")}
       - name: notification_user_group_name
@@ -535,7 +535,7 @@ phases:
       - name: environment
         value: ${workflow.variables.environment}
       - name: standby_url
-        value: https://app-test.clari.com
+        value: https://app-test.foo.com
       - name: harness_api_key
         value: ${secrets.getValue("Harness API key for Jenkins")}
       - name: notification_user_group_name
@@ -545,7 +545,7 @@ phases:
       - name: message_template
         value: ${artifact.label.get("approval_msg_2")}
       - name: active_url
-        value: https://app.clari.com
+        value: https://app.foo.com
     stepsInParallel: false
   - type: VERIFY_SERVICE
     name: Verify Active Service
@@ -798,7 +798,7 @@ phases:
         timeoutMillis: 1814400000
     stepsInParallel: false
   provisionNodes: false
-  serviceName: clari-nexus
+  serviceName: foo-nexus
   statefulSet: false
   templateExpressions:
   - expression: ${InfraDefinition_ECS}
@@ -1015,7 +1015,7 @@ rollbackPhases:
         timeoutMillis: 1814400000
     stepsInParallel: false
   provisionNodes: false
-  serviceName: clari-nexus
+  serviceName: foo-nexus
   statefulSet: false
   templateExpressions:
   - expression: ${InfraDefinition_ECS}
@@ -1063,7 +1063,7 @@ userVariables:
   mandatory: true
   name: Approval_User_Group
 - type: TEXT
-  description: 'Clari environment name: prestaging, staging, production, etc. This is different from Harness_Environment and should correspond to the configured service_spec environments.'
+  description: 'foo environment name: prestaging, staging, production, etc. This is different from Harness_Environment and should correspond to the configured service_spec environments.'
   fixed: false
   mandatory: true
   name: environment

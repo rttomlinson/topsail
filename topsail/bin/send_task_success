@@ -1,0 +1,51 @@
+#!/usr/bin/env perl
+
+$| = 1;
+use v5.030;
+use warnings;
+use strictures 2;
+no warnings 'uninitialized';
+
+use Carp 'confess';
+use JSON::PP;
+use AWS::CLIWrapper;
+
+use Getopt::Long;
+Getopt::Long::Configure("pass_through");
+
+my ($task_token, $task_output, $task_output_file, $task_output_data_format);
+
+# Conditional
+
+GetOptions(
+  'task-token=s' => \$task_token,
+  'task-output=s' => \$task_output,
+  'task-output-file=s' => \$task_output_file,
+  'task-output-data-format=s' => \$task_output_data_format,
+)
+  or die("Error in command line arguments");
+
+say("Task Token: $task_token");
+
+$task_output //= '{}';
+
+my $aws = AWS::CLIWrapper->new(
+    region => 'us-east-1',
+);
+
+# This API action isn’t logged in CloudTrail. 
+my $res = $aws->stepfunctions(
+    'send-task-success' => {
+        "task-token" => $task_token,
+        "task-output" => $task_output,
+    },
+    timeout => 30, # optional. default is 30 seconds
+);
+ 
+if ($res) {
+    say $res;    
+} else {
+    warn $AWS::CLIWrapper::Error->{Code};
+    warn $AWS::CLIWrapper::Error->{Message};
+}
+

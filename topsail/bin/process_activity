@@ -1,0 +1,151 @@
+#!/usr/bin/env perl
+
+$| = 1;
+use v5.030;
+use warnings;
+use strictures 2;
+no warnings 'uninitialized';
+use Errno;
+use Carp 'confess';
+use JSON::PP;
+use AWS::CLIWrapper;
+use JSON::PP;
+use POSIX ":sys_wait_h";
+use Getopt::Long;
+Getopt::Long::Configure("pass_through");
+
+
+my ($activity_arn,);
+
+# Conditional
+
+GetOptions(
+  'activity-arn=s' => \$activity_arn,
+)
+  or die("Error in command line arguments");
+
+say("Activity ARN: $activity_arn");
+
+my $aws = AWS::CLIWrapper->new(
+    region => 'us-east-1',
+);
+
+my $task_token;
+my $task_input_json;
+my $task_input;
+
+while(1) {
+    # This API action isn’t logged in CloudTrail.
+    say "Polling for next activity: $activity_arn";
+    my $res = $aws->stepfunctions(
+        'get-activity-task' => {
+            "activity-arn" => $activity_arn,
+            "worker-name" => "trashcan-mans"
+        },
+        timeout => 30, # optional. default is 30 seconds
+    );
+    
+    
+    if ($res) {
+        say "got activity";
+        $task_token = $res->{taskToken};
+        $task_input_json = $res->{input};
+        $task_input = decode_json $task_input_json;
+        last;
+
+    } else {
+        warn $AWS::CLIWrapper::Error->{Code};
+        warn $AWS::CLIWrapper::Error->{Message};
+    }
+}
+
+# start heartbeat cron
+say "starting heartbeat";
+
+# should need to validate here
+my $deployment_spec = $task_input->{deployment_spec};
+my $deployment_spec_json = encode_json($deployment_spec);
+# can be undefined or empty
+my $contexts = $task_input->{contexts};
+$contexts //= ();
+# if(ref $contexts eq 'ARRAY') {
+
+# }
+my @base_topsail_script = ("$^X", "/Users/rtomlinson/Documents/rttomlinson/topsail/topsail/bin/run_topsail", "--deployment-spec-json", "$deployment_spec_json");
+# "$^X /Users/rtomlinson/Documents/rttomlinson/topsail/topsail/bin/run_topsail --input-file /tmp/big.json --context delete"
+
+my $pid = fork();
+die "unable to fork: $!" unless defined($pid);
+if (!$pid) {  # child
+    say "i'm the child process";
+
+    for(@{$contexts}){
+        push(@base_topsail_script, ("--context", $_));
+    }
+    say "executing @base_topsail_script";
+
+    # $^X
+    my $exit_code = system(@base_topsail_script);
+    if($exit_code == 0){
+        # if this completes with no errors, then trigger heartbeat to exit
+        say "kill the child!";
+        exit;
+    } else {
+        die "system call failed: $?";
+        # if this has errors, we need to report it as a failure
+    }
+        
+}
+
+my $kid = waitpid($pid, WNOHANG);
+# parent continues here, pid of child is in $pid
+while($kid >= 0) {
+    say "found process. pump the heart";
+    say $pid;
+    my $heartbeat_res = $aws->stepfunctions(
+        'send-task-heartbeat' => {
+            "task-token" => $task_token,
+        },
+        timeout => 30, # optional. default is 30 seconds
+    );
+    
+    if ($heartbeat_res) {
+        say "lub-bub";
+        say "send heartbeat success: $heartbeat_res";    
+    } else {
+        warn $AWS::CLIWrapper::Error->{Code};
+        warn $AWS::CLIWrapper::Error->{Message};
+    }
+    sleep 15;
+    $kid = waitpid($pid, WNOHANG);
+    
+}
+# kill heartbeat cron
+
+
+say $task_token;
+say $task_input;
+
+
+
+# process the workflow spec
+
+my $task_output;
+
+$task_output //= '{}';
+
+# This API action isn’t logged in CloudTrail. 
+my $send_task_success_res = $aws->stepfunctions(
+    'send-task-success' => {
+        "task-token" => $task_token,
+        "task-output" => $task_output,
+    },
+    timeout => 30, # optional. default is 30 seconds
+);
+ 
+if ($send_task_success_res) {
+    say "send task success: $send_task_success_res";    
+} else {
+    warn $AWS::CLIWrapper::Error->{Code};
+    warn $AWS::CLIWrapper::Error->{Message};
+}

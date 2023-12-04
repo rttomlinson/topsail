@@ -1,0 +1,35 @@
+#!/usr/bin/env perl
+
+$| = 1;
+use v5.030;
+use warnings;
+use strictures 2;
+no warnings 'uninitialized';
+
+
+use Carp 'confess';
+use JSON::PP;
+use AWS::CLIWrapper;
+
+use Getopt::Long;
+Getopt::Long::Configure("pass_through");
+
+my (@deployment_contexts, $input_file, $output_file);
+
+# Conditional
+
+# from file
+# from argument
+# from url
+# from docker tag
+# from docker label
+
+GetOptions(
+  'context=s' => \@deployment_contexts,
+  'input-file=s' => \$input_file, # deployment_spec_json
+  'output-file=s' => \$output_file,
+)
+  or die("Error in command line arguments");
+
+say("Contexts: @deployment_contexts");
+say("Input file: $input_file");

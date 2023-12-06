@@ -1,22 +1,17 @@
-FROM shogo82148/p5-aws-lambda:base-5.38.al2
+ARG REPO_PREFIX
+
+FROM ${REPO_PREFIX}alpine:latest
 # or if you want to use ECR Public.
 # FROM public.ecr.aws/shogo82148/p5-aws-lambda:base-5.38.al2
 
-RUN yum clean all
 # wget is broken in alpine
-RUN yum -y install yq jq curl gcc make perl libc-dev perl-dev unzip \
+RUN apk add --no-cache aws-cli yq jq curl gcc make perl libc-dev perl-dev \
     && curl -L https://cpanmin.us | perl - --no-wget App::cpanminus
-
-# uninstall awscli version 1 and install awscli v2
-RUN yum -y remove awscli
-RUN curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
-RUN unzip awscliv2.zip
-RUN ./aws/install
 
 # List all dependencies here, including testing. Do not add them to Makefile.PL
 RUN cpanm -v --no-wget Test::More Test::Output Digest::SHA Pod::Usage \
     File::Slurp Test::Exception Test::LectroTest Moo strictures \
-    AWS::CLIWrapper~1.27 Net::DNS HTTP::Tinyish UUID::Random Clone
+    AWS::CLIWrapper~1.27 Net::DNS HTTP::Tinyish UUID::Random Clone Log::Log4perl LWP::Simple
 
 # We want AWS CLI calls to *not* fail and keep retrying until a timeout expires.
 # 255 attempts with exponential backoff up to 20 seconds will give us over an hour
@@ -53,7 +48,7 @@ ENV AWS_CLIWRAPPER_CATCH_ERROR_MAX_DELAY=3
 
 
 RUN mkdir -p /tmp/source
-ADD ./ /tmp/source/
+ADD ./topsail /tmp/source/
 WORKDIR /tmp/source
 
 ARG BUILD_OPTIONS=''

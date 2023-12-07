@@ -736,6 +736,6 @@ put-activity: simp_step_service_manifest
 	# call the start step function with the input
 	echo starting-step-function
 	DEPLOYMENT_SPEC_JSON=$$(jq -n --argjson data "$$contexts" --argfile dspec /tmp/big.json '{"contexts": $$data, "deployment_spec": $$dspec.deployment_spec}'); \
-	STATE_MACHINE_ARN="arn:aws:states:us-east-1:612674644368:stateMachine:ActivityWorkflowExecutor"; \
+	STATE_MACHINE_ARN="arn:aws:states:us-east-1:223193535650:stateMachine:ActivityWorkflowExecutor"; \
 	aws stepfunctions start-execution --state-machine-arn $$STATE_MACHINE_ARN --input "$$DEPLOYMENT_SPEC_JSON";
 

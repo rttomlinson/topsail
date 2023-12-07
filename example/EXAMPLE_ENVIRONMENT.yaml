@@ -71,6 +71,36 @@ Resources:
       TimeoutInMinutes: "60"
       Parameters:
         EnvironmentName: !Ref EnvironmentName
+  MyKeyPair:
+    Type: AWS::EC2::KeyPair
+    Properties:
+      KeyName: MyKeyPair
+  topsailInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: MyTopsailRole
+      Roles:
+        - MyTopsailRole
+    DependsOn: "topsailRole"
+  topsailRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - "sts:AssumeRole"
+      Description: "String"
+      ManagedPolicyArns:
+        - "arn:aws:iam::aws:policy/AdministratorAccess"
+      RoleName: MyTopsailRole
+      Tags:
+        - Key: "used_by"
+          Value: "topsail"
   ECSClusterDefaults:
     Type: AWS::CloudFormation::Stack
     Properties:

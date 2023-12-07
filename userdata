@@ -1,0 +1,19 @@
+#!/bin/sh
+apk add docker
+addgroup alpine docker
+rc-update add docker default
+service docker start
+
+apk add git
+
+# apk add --no-cache aws-cli yq jq curl gcc make perl libc-dev perl-dev
+# curl -L https://cpanmin.us | perl - --no-wget App::cpanminus
+
+# RUN mkdir -p /tmp/source
+# ADD ./ /tmp/source/
+# WORKDIR /tmp/source
+# ARG BUILD_OPTIONS=''
+# RUN cpanm -v --no-wget $BUILD_OPTIONS /tmp/source \
+#   && rm -rf /tmp/source /root/.cpanm
+
+echo "end user-data"

@@ -16,4 +16,16 @@ volumes = %W(
   /tmp:/tmp
 )
 
+docker run --init -v /tmp:/tmp -v /var/run/docker.sock:/var/run/docker.sock -v /etc/docker:/etc/docker -i rttomlinson/topsail process_activity --activity-arn arn:aws:states:us-east-1:798750129590:activity:basic-activity
+
+# make sure running as root?
+# do i need to make sure HOST_TEMPDIR exists?
+# HOST_TEMPDIR is the contract to the process_activity function for where the script has access to the host dir for file storage. no guarentees on scope
+HOST_TEMPDIR="${HOME}/tmp"
+echo $HOST_TEMPDIR
+docker run --init -v "${HOST_TEMPDIR}:${HOST_TEMPDIR}" -v /var/run/docker.sock:/var/run/docker.sock -v /etc/docker:/etc/docker --env HOST_TEMPDIR="${HOST_TEMPDIR}" -i rttomlinson/topsail process_activity --activity-arn arn:aws:states:us-east-1:798750129590:activity:basic-activity
+
+docker pull -q "$image" >/dev/null || true
+exec docker run --init -v "$TMPDIR:$TMPDIR" -i "$image" "$@"
+
 Install any missing modules when that fails

@@ -8,6 +8,9 @@ FROM ${REPO_PREFIX}alpine:latest
 RUN apk add --no-cache aws-cli yq jq curl gcc make perl libc-dev perl-dev \
     && curl -L https://cpanmin.us | perl - --no-wget App::cpanminus
 
+RUN apk add --no-cache docker   
+RUN apk add bash
+
 # List all dependencies here, including testing. Do not add them to Makefile.PL
 RUN cpanm -v --no-wget Test::More Test::Output Digest::SHA Pod::Usage \
     File::Slurp Test::Exception Test::LectroTest Moo strictures Data::UUID \

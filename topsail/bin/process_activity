@@ -219,8 +219,14 @@ sub handle {
     my $ug    = Data::UUID->new;
     my $uuid = $ug->create();
     my $dir_path = $ug->to_string( $uuid );
-    my $temporary_path_prefix = "tmp/${dir_path}";
-    my $workflow_temporary_directory_path = "${HOME}/${temporary_path_prefix}";
+    # my $temporary_path_prefix = "tmp/${dir_path}";
+    my $HOST_TEMPDIR = "$ENV{HOST_TEMPDIR}"; # can we guarentee this will always be the absolute path?
+    my $temporary_path_prefix = "$ENV{HOST_TEMPDIR}/${dir_path}";
+    my $workflow_temporary_directory_path = $temporary_path_prefix;
+    # my $workflow_temporary_directory_path = "${HOME}/${temporary_path_prefix}";
+    my $os_user = $ENV{USER};
+
+    # SEE TMPDIR env var set below
     $ENV{HOST_TEMPORARY_DIRECTORY} = $workflow_temporary_directory_path;
 
     system("mkdir -p $workflow_temporary_directory_path") == 0
@@ -303,8 +309,6 @@ sub handle {
             push(@script_args, $arg->{name} . "=" . "\'${cloud_spec_json_arg}\'" . "\n");
         }
         
-        
-
         # script name path on the host to invoke the script?
         my $script_file_uuid = $ug->create();
         my $script_filename = $ug->to_string( $script_file_uuid );
@@ -313,12 +317,19 @@ sub handle {
         print FH $step_script;
         close(FH);
 
-        # output filename
+        # output filename (probably dont need this)
         my $output_file_uuid = $ug->create();
+
         my $output_filename = $ug->to_string( $output_file_uuid );
+
         my $output_filename_path = "/${temporary_path_prefix}/${output_filename}";
-        $ENV{TMPDIR} = "/${temporary_path_prefix}";
-        $ENV{OUTPUT_FILE} = $output_filename_path;
+
+
+        # $ENV{TMPDIR} = "/${temporary_path_prefix}"; # HOST_TEMPORARY_DIRECTORY
+        # TMPDIR is the contract to the user managed scripts for where they can pass files between jobs on the host
+        $ENV{TMPDIR} = $workflow_temporary_directory_path;
+
+        # $ENV{OUTPUT_FILE} = $output_filename_path;
 
         # my @p_args = ("help",);
         my $script_exit_code = system("$^X $script_filename");
@@ -327,7 +338,7 @@ sub handle {
             my $home_dir = $ENV{HOME};
             # read file from "${home_dir}/tmp/${output_var}"
             my $file = "${workflow_temporary_directory_path}/${output_filename}";
-            if(-e $file) {
+            if(-e $file) { # instead check if anything is in the directory. look for file to thats reader the type of file
                 open my $info, $file or die "Could not open $file: $!";
                 my %script_output = ();
                 $workflow_state{$output_var} = \%script_output;

@@ -59,8 +59,8 @@ cloud_spec: &cloud_spec
 
     domainName: &domain_name_ref
       prestaging:
-        standby: "default-application-lb-804321745.us-east-1.elb.amazonaws.com"
-        active: "default-application-lb-804321745.us-east-1.elb.amazonaws.com"
+        standby: "default-application-lb-1737989161.us-east-1.elb.amazonaws.com"
+        active: "default-application-lb-1737989161.us-east-1.elb.amazonaws.com"
       staging: "example-lb-int-staging"
 
     loadBalancerName: &load_balancer_name_ref
@@ -75,24 +75,24 @@ cloud_spec: &cloud_spec
       awsvpcConfiguration:
         # Max 16 security groups (quota increase request approved - Renzo Tomlinson. 16 is the limit)
         securityGroups:
-          prestaging: [sg-0f4434b3b565d3dd9]
+          prestaging: [sg-0004e84902a3954b8]
           staging: [sg-0802e31816e48501a]
 
         # Max 16 subnets
         subnets:
-          prestaging: [subnet-0dca82e9bfb7adfc6, subnet-0d912bc23ab504189]
+          prestaging: [subnet-0c97bca722d798d9b, subnet-0206d358f1e3f2fbf]
           staging:
             [subnet-1de9466b, subnet-4c3dfb14, subnet-e3c555de, subnet-60cf3d4a]
 
         assignPublicIp: DISABLED # or ENABLED #
 
     executionRoleArn: &execution_role_arn_ref
-      prestaging: "arn:aws:iam::798750129590:role/default-task-execution-role"
-      staging: "arn:aws:iam::798750129590:role/example_staging_ecs_TER"
+      prestaging: "arn:aws:iam::001473275106:role/default-task-execution-role"
+      staging: "arn:aws:iam::001473275106:role/example_staging_ecs_TER"
 
     taskRoleArn: &task_role_arn_ref
-      prestaging: "arn:aws:iam::798750129590:role/default-task-role"
-      staging: "arn:aws:iam::798750129590:role/example_staging_ecs_TR"
+      prestaging: "arn:aws:iam::001473275106:role/default-task-role"
+      staging: "arn:aws:iam::001473275106:role/example_staging_ecs_TR"
 
   aws:
     region: us-east-1
@@ -411,7 +411,7 @@ deployment_spec:
       standby_cloud_spec_context: ["prestaging", "standby"]
       banana: ["hello", "banana"]
       yoyoyo: "just some val"
-    RoleArn: "arn:aws:iam::599617893694:role/default-step-function-lambda-role" # This is just a placeholder
+    RoleArn: "arn:aws:iam::001473275106:role/default-step-function-lambda-role" # This is just a placeholder
     # TMPDIR: /tmp # Something scoped at the system level - specific to the host machine and user space
     StartAt: "Validate Cloud Spec"
     States:
@@ -420,9 +420,9 @@ deployment_spec:
         # Resource: "function:mast-lambda"
         # Parameters:
         ResultPath: "standby_cloud_spec"
-        End: true
-        # Next: "Create ECS Task Definition"
-
+        # End: true
+        Next: "Create ECS Task Definition"
+        # all scripts run as root
         scriptString: |
           #!/usr/bin/env perl
 
@@ -450,16 +450,22 @@ deployment_spec:
             $func_to_execute = $func_to_execute . "--context ${context} ";
           }
 
-          $func_to_execute = $func_to_execute . "--output-file \"${TMPDIR}/my-output-file.txt\" ";
+          $func_to_execute = $func_to_execute . "--output-file \"${TMPDIR}/my-output-file\" ";
           $func_to_execute = $func_to_execute . "--cloud-spec-json '${cloud_spec_json}'";
 
           say $func_to_execute;
 
           system("$func_to_execute") == 0
             or die "system perl failed: $?";
-          # Do something with the output? Put it where the executor said to
 
+          # Do something with the output? Put it where the executor said to
           # can i somehow tell the host there is an output file here?
+          my $str = "ENVVAR";
+          my $filename = "${TMPDIR}/my-output-file.type";
+          open(FH, '>', $filename) or die $!;
+          print FH $str;
+          close(FH);
+
           1;
         timeoutMillis: 30000
         variables:
@@ -473,8 +479,8 @@ deployment_spec:
         # Resource: "function:mast-lambda"
         # Parameters:
         ResultPath: "task_definition"
-        Next: "Create ELB Target Groups"
-        # End: true
+        # Next: "Create ELB Target Groups"
+        End: true
 
         scriptString: |
           #!/usr/bin/env bash
@@ -489,7 +495,7 @@ deployment_spec:
           # i.e. host creds would be different from job creds. This is what k8s also kinda does. Maybe that's how k8s agents are doing it
           docker run -i --init --mount type=bind,source="${TMPDIR}",target=$TMPDIR --mount type=bind,source="${HOME}/.aws",target=/root/.aws rttomlinson/mast create_ecs_task_definition \
               --cloud-spec-url "active" \
-              --output-file "$TMPDIR/aaa-outputfile.txt" \
+              --output-file "$TMPDIR/aaa-outputfile" \
               --cloud-spec-json "${cloud_spec_json}"
 
           # I need to somehow get the file out of this execution and into cloud_spec_json
@@ -497,7 +503,7 @@ deployment_spec:
               
           # will always return key-value pairs as strings
           # turn this info json and encode it and set it as the output value to outputVars
-
+          echo "ENVVAR" > "${TMPDIR}/aaa-outputfile.type"
           echo "${HOME}${OUTPUT_FILE}"
         timeoutMillis: 30000
         variables:
@@ -553,8 +559,9 @@ deployment_spec:
               --cloud-spec-json "${cloud_spec_json}" \
               --poll-interval ${poll_interval} \
               --task-definition-arn ${task_definition_arn} \
-              --output-file "$TMPDIR/output-file-yoo.txt"
+              --output-file "$TMPDIR/output-file-yoo"
 
+          echo "ENVVAR" > "${TMPDIR}/output-file-yoo.type"
         timeoutMillis: 30000
         variables:
           - name: cloud_spec_json
@@ -588,7 +595,7 @@ deployment_spec:
   delete:
     variables:
       cloud_spec_json: *cloud_spec
-    RoleArn: "arn:aws:iam::599617893694:role/default-step-function-lambda-role" # This is just a placeholder
+    RoleArn: "arn:aws:iam::001473275106:role/default-step-function-lambda-role" # This is just a placeholder
     # TMPDIR: /tmp # Something scoped at the system level - specific to the host machine and user space
     StartAt: "Validate Cloud Spec"
 
@@ -617,8 +624,6 @@ deployment_spec:
           my $contexts = decode_json $ENV{context};
 
           my $TMPDIR = $ENV{TMPDIR};
-          # my $OUTPUT_FILE = $ENV{OUTPUT_FILE};
-          # my $HOST_TEMPORARY_DIRECTORY = $ENV{HOST_TEMPORARY_DIRECTORY};
           my $cloud_spec_json = $ENV{cloud_spec_json};
           my $HOME = $ENV{HOME};
 
@@ -628,7 +633,7 @@ deployment_spec:
             $func_to_execute = $func_to_execute . "--context ${context} ";
           }
 
-          $func_to_execute = $func_to_execute . "--output-file \"${TMPDIR}/another-output-file.txt\" ";
+          $func_to_execute = $func_to_execute . "--output-file \"${TMPDIR}/another-output-file\" ";
           $func_to_execute = $func_to_execute . "--cloud-spec-json '${cloud_spec_json}'";
 
           say $func_to_execute;
@@ -637,6 +642,11 @@ deployment_spec:
             or die "system perl failed: $?";
 
           # Do something with the output? Put it where the executor said to
+          my $str = "ENVVAR";
+          my $filename = "${TMPDIR}/another-output-file.type";
+          open(FH, '>', $filename) or die $!;
+          print FH $str;
+          close(FH);
 
           1;
         timeoutMillis: 30000
@@ -730,7 +740,7 @@ deployment_spec:
   rollback:
     variables:
       cloud_spec_json: *cloud_spec
-    RoleArn: "arn:aws:iam::599617893694:role/default-step-function-lambda-role" # This is just a placeholder
+    RoleArn: "arn:aws:iam::001473275106:role/default-step-function-lambda-role" # This is just a placeholder
     # TMPDIR: /tmp # Something scoped at the system level - specific to the host machine and user space
     StartAt: "Validate Cloud Spec"
 
@@ -769,7 +779,7 @@ deployment_spec:
             $func_to_execute = $func_to_execute . "--context ${context} ";
           }
 
-          $func_to_execute = $func_to_execute . "--output-file \"${TMPDIR}/zzz-outputfile.txt\" ";
+          $func_to_execute = $func_to_execute . "--output-file \"${TMPDIR}/zzz-outputfile\" ";
           $func_to_execute = $func_to_execute . "--cloud-spec-json '${cloud_spec_json}'";
 
           say $func_to_execute;
@@ -778,7 +788,11 @@ deployment_spec:
             or die "system perl failed: $?";
 
           # Do something with the output? Put it where the executor said to
-
+          my $str = "ENVVAR";
+          my $filename = "${TMPDIR}/zzz-outputfile.type";
+          open(FH, '>', $filename) or die $!;
+          print FH $str;
+          close(FH);
           1;
         timeoutMillis: 30000
         variables:
@@ -873,7 +887,7 @@ deployment_spec:
       "ApprovedPassState": { "Type": "Pass", "End": true }
       "RejectedPassState": { "Type": "Pass", "End": true }
   abort:
-    RoleArn: "arn:aws:iam::599617893694:role/default-step-function-lambda-role" # This is just a placeholder
+    RoleArn: "arn:aws:iam::001473275106:role/default-step-function-lambda-role" # This is just a placeholder
     # TMPDIR: /tmp # Something scoped at the system level - specific to the host machine and user space
     StartAt: "AbortedState"
     States:

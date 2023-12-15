@@ -16,4 +16,10 @@ systemctl enable docker
 service docker start
 usermod -a -G docker ec2-user
 
+# make sure /tmp exists and is accessible to everyone?
+
+# create the runner user
+# create the cron to execute as the runner user
+# runner user gets tmp dir set from 
+
 echo "end userdata"

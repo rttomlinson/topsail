@@ -20,6 +20,20 @@ usermod -a -G docker ec2-user
 
 # create the runner user
 # create the cron to execute as the runner user
-# runner user gets tmp dir set from 
+# runner user gets tmp dir set from
+
+yum -y install amazon-cloudwatch-agent
+# doesn't seem like we need to "start" it
+# default run as root
+# we might need to configure for instance and container metrics but logging seems to be working
+
+# mkdir -p /opt/aws/amazon-cloudwatch-agent/etc
+# touch /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json
+
+# opt/aws/amazon-cloudwatch-agent/bin/config.json
+
+# configure the cloudwatch agent via file
+
+# /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -s -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json
 
 echo "end userdata"

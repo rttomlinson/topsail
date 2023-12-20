@@ -29,6 +29,9 @@ For executor:
 You have an env var called TMPDIR that is available
 In order for your script to pass back data to the global execution context you must write out to a file of your selection AND create a file called <filename>.type (note the .type extention) this tell the executor to create your file and output the data as env vars that can be consumed in other scripts. You can pass any string values into your scripts via env vars. What you do with those strings is up to you. i.e. json encoded or whatever
 
+How to make aws creds on the machine available to docker scripts
+Does it automatically get the env vars? Probably not
+
 
 # v1
 # make sure running as root?
@@ -39,9 +42,23 @@ In order for your script to pass back data to the global execution context you m
 # run on local machine
 if not root
 sudo su root
-HOST_TEMPDIR="${HOME}/tmp"
+export HOST_TEMPDIR="${HOME}/tmp"
 echo $HOST_TEMPDIR
-docker run --init -v "${HOST_TEMPDIR}:${HOST_TEMPDIR}" -v /var/run/docker.sock:/var/run/docker.sock -v /etc/docker:/etc/docker --env HOST_TEMPDIR="${HOST_TEMPDIR}" -i rttomlinson/topsail process_activity --activity-arn arn:aws:states:us-east-1:798750129590:activity:basic-activity
+docker run --init -v "${HOST_TEMPDIR}:${HOST_TEMPDIR}" -v /var/run/docker.sock:/var/run/docker.sock -v /etc/docker:/etc/docker --env HOST_TEMPDIR="${HOST_TEMPDIR}" -i rttomlinson/topsail process_activity --activity-arn arn:aws:states:us-east-1:927027609069:activity:basic-activity
+
+
+
+If running on ec2 directly, (via docker) docker containers should have network access to the ec2 metadata server and can use the credentials on the machine
+
+
+# Sending logs to aws cloudwatch from ec2
+export HOST_TEMPDIR="${HOME}/tmp"
+echo $HOST_TEMPDIR
+docker run --init -v "${HOST_TEMPDIR}:${HOST_TEMPDIR}" -v /var/run/docker.sock:/var/run/docker.sock -v /etc/docker:/etc/docker --env HOST_TEMPDIR="${HOST_TEMPDIR}" --log-driver=awslogs --log-opt awslogs-region=us-east-1 --log-opt awslogs-group=TopsailLogGroup -i rttomlinson/topsail process_activity --activity-arn arn:aws:states:us-east-1:927027609069:activity:basic-activity
+
+# preserve logs? # flush all logs? # preserve failed containers? # clean-up old containers when space is limited?
+run in detached mode and get the container id. poll for container run completion and report back to server
+
 
 # v2
 # make sure running as root?
@@ -54,13 +71,15 @@ if not root
 sudo su root
 export HOST_TEMPDIR="/tmp"
 echo $HOST_TEMPDIR
-docker run --init -v "${HOST_TEMPDIR}:${HOST_TEMPDIR}" -v /var/run/docker.sock:/var/run/docker.sock -v /etc/docker:/etc/docker --env HOST_TEMPDIR="${HOST_TEMPDIR}" -i rttomlinson/topsail process_activity --activity-arn arn:aws:states:us-east-1:588372812479:activity:basic-activity
+docker run --init -v "${HOST_TEMPDIR}:${HOST_TEMPDIR}" -v /var/run/docker.sock:/var/run/docker.sock -v /etc/docker:/etc/docker --env HOST_TEMPDIR="${HOST_TEMPDIR}" -i rttomlinson/topsail process_activity --activity-arn arn:aws:states:us-east-1:927027609069:activity:basic-activity
 
 docker pull -q "$image" >/dev/null || true
 exec docker run --init -v "$TMPDIR:$TMPDIR" -i "$image" "$@"
 
 Install any missing modules when that fails
 
+
+perl -d Workflow.pm --deployment-spec-json="$(jq '.deployment_spec' /tmp/big.json | jq -s '.[0]')" --context deploy
 
 # tooling
 

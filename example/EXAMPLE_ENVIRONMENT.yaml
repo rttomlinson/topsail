@@ -101,6 +101,11 @@ Resources:
       Tags:
         - Key: "used_by"
           Value: "topsail"
+  TopsailLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: TopsailLogGroup
+      RetentionInDays: 3
   ECSClusterDefaults:
     Type: AWS::CloudFormation::Stack
     Properties:

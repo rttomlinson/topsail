@@ -1,0 +1,59 @@
+#!/usr/bin/env perl
+
+$| = 1;
+use v5.030;
+use warnings;
+use strictures 2;
+no warnings 'uninitialized';
+use Errno;
+use Carp 'confess';
+use JSON::PP;
+use AWS::CLIWrapper;
+use JSON::PP;
+use POSIX ":sys_wait_h";
+use Getopt::Long;
+use Data::UUID;
+Getopt::Long::Configure("pass_through");
+
+use Topsail::Workflow;
+
+# init logger
+use Log::Log4perl qw(get_logger);
+Log::Log4perl->init("log4perl.cfg");
+my $logger = get_logger("Foo");
+$logger->debug("Hello from Workflow.pm");
+our @EXPORT_OK = qw(workflow);
+# Conditional
+my (@deployment_contexts, $input_file, $output_file, $deployment_spec_json);
+
+# Conditional
+
+# from file
+# from argument
+# from url
+# from docker tag
+# from docker label
+
+GetOptions(
+  'context=s' => \@deployment_contexts,
+#   'input-file=s' => \$input_file, # deployment_spec_json
+  'deployment-spec-json=s' => \$deployment_spec_json, # deployment_spec_json
+#   'output-file=s' => \$output_file,
+);
+
+# should need to validate here
+# can be undefined or empty
+my $contexts = \@deployment_contexts; 
+$contexts //= ();
+my $original_deployment_spec;
+if(defined $deployment_spec_json and length($deployment_spec_json) > 0) {
+    $original_deployment_spec = decode_json $deployment_spec_json;
+    confess "valid service manifest not found" unless defined $original_deployment_spec;
+    # Need to be env var equivalents
+    my $steps_performed = Topsail::Workflow::execute_workflow(starting_contexts=>$contexts, original_deployment_spec=>$original_deployment_spec);
+
+} else {
+    confess "We need the deployment spec json";
+}
+
+1;

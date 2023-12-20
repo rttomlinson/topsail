@@ -44,17 +44,23 @@ if not root
 sudo su root
 export HOST_TEMPDIR="${HOME}/tmp"
 echo $HOST_TEMPDIR
-docker run --init -v "${HOST_TEMPDIR}:${HOST_TEMPDIR}" -v /var/run/docker.sock:/var/run/docker.sock -v /etc/docker:/etc/docker --env HOST_TEMPDIR="${HOST_TEMPDIR}" -i rttomlinson/topsail process_activity --activity-arn arn:aws:states:us-east-1:927027609069:activity:basic-activity
+docker run --init -v "${HOST_TEMPDIR}:${HOST_TEMPDIR}" -v /var/run/docker.sock:/var/run/docker.sock -v /etc/docker:/etc/docker --env HOST_TEMPDIR="${HOST_TEMPDIR}" -i rttomlinson/topsail process_activity --activity-arn arn:aws:states:us-east-1:044618531875:activity:basic-activity
+
+# Probably need to mount .aws creds if running from local development environment
+docker run --init -v "${HOST_TEMPDIR}:${HOST_TEMPDIR}" -v /var/run/docker.sock:/var/run/docker.sock -v /etc/docker:/etc/docker -v "${HOME}/.aws:/root/.aws" --env HOST_TEMPDIR="${HOST_TEMPDIR}" -i rttomlinson/topsail process_activity --activity-arn arn:aws:states:us-east-1:044618531875:activity:basic-activity
 
 
 
 If running on ec2 directly, (via docker) docker containers should have network access to the ec2 metadata server and can use the credentials on the machine
 
 
+# create and mount to log4perl config from the machine
+docker run --init -v "${HOST_TEMPDIR}:${HOST_TEMPDIR}" -v /var/run/docker.sock:/var/run/docker.sock -v /etc/docker:/etc/docker --mount type=bind,source="$(pwd)/log4perl.cfg",target=/log4perl.cfg --env HOST_TEMPDIR="${HOST_TEMPDIR}" --log-driver=awslogs --log-opt awslogs-region=us-east-1 --log-opt awslogs-group=TopsailLogGroup -i rttomlinson/topsail process_activity --activity-arn arn:aws:states:us-east-1:044618531875:activity:basic-activity
+
 # Sending logs to aws cloudwatch from ec2
 export HOST_TEMPDIR="${HOME}/tmp"
 echo $HOST_TEMPDIR
-docker run --init -v "${HOST_TEMPDIR}:${HOST_TEMPDIR}" -v /var/run/docker.sock:/var/run/docker.sock -v /etc/docker:/etc/docker --env HOST_TEMPDIR="${HOST_TEMPDIR}" --log-driver=awslogs --log-opt awslogs-region=us-east-1 --log-opt awslogs-group=TopsailLogGroup -i rttomlinson/topsail process_activity --activity-arn arn:aws:states:us-east-1:927027609069:activity:basic-activity
+docker run --init -v "${HOST_TEMPDIR}:${HOST_TEMPDIR}" -v /var/run/docker.sock:/var/run/docker.sock -v /etc/docker:/etc/docker --env HOST_TEMPDIR="${HOST_TEMPDIR}" --log-driver=awslogs --log-opt awslogs-region=us-east-1 --log-opt awslogs-group=TopsailLogGroup -i rttomlinson/topsail process_activity --activity-arn arn:aws:states:us-east-1:044618531875:activity:basic-activity
 
 # preserve logs? # flush all logs? # preserve failed containers? # clean-up old containers when space is limited?
 run in detached mode and get the container id. poll for container run completion and report back to server

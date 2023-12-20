@@ -211,19 +211,19 @@ sub handle {
             $script_exit_code = system("$^X $script_filename >$unique_tmpdir_for_single_step/logs.txt 2>&1");
         } else {
             
-            # $script_exit_code = system("$^X $script_filename");
             use IPC::Run qw(run);
-            my ( $out, $err );
             my @cmd = (
                 "$^X",
                 
                 "$script_filename"
-                # "perl",
-                # '-le', 
-                # 'STDOUT->autoflush(1); for (qw( abc def ghi )) { print; sleep 1; }'
             );
 
-            run \@cmd, '>', sub { say "$script_unique_id: $_[0]" };
+            run \@cmd, '>', sub { 
+                    my @text = split "\n", "$_[0]";
+                    for(@text) {
+                        say "$script_unique_id: $_" unless $_ eq '';
+                    }
+                };
 
             say "finishing execution of $step_name with id $script_unique_id";
             # how to catch errors?

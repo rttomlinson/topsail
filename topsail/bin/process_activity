@@ -131,12 +131,12 @@ my %payload = ();
 my $deployment_contexts = $contexts;
 my $overall_state_of_the_system = '';
 my @steps_performed;
-my $step_performed = \@steps_performed;
+my $steps_performed = \@steps_performed;
 
 
 say "starting workflow execution";
 # unique execution flow here
-$steps_performed = Topsail::Workflow::execute_workflow($deployment_contexts, $original_deployment_spec);
+$steps_performed = Topsail::Workflow::execute_workflow(starting_contexts => $deployment_contexts, original_deployment_spec => $original_deployment_spec);
 
 say "finish running the script. yay";
 

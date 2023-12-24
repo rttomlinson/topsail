@@ -737,11 +737,28 @@ stub:
 
 
 .PHONY: put-activity
-put-activity: simp_step_service_manifest
+put-activity: local_step_service_manifest # simp_step_service_manifest
 	# create the spec with contexts
 	# call the start step function with the input
 	echo starting-step-function
 	DEPLOYMENT_SPEC_JSON=$$(jq -n --argjson data "$$contexts" --argfile dspec /tmp/big.json '{"contexts": $$data, "deployment_spec": $$dspec.deployment_spec}'); \
-	STATE_MACHINE_ARN="arn:aws:states:us-east-1:927027609069:stateMachine:ActivityWorkflowExecutor"; \
+	STATE_MACHINE_ARN="arn:aws:states:us-east-1:904474103895:stateMachine:ActivityWorkflowExecutor"; \
 	aws stepfunctions start-execution --state-machine-arn $$STATE_MACHINE_ARN --input "$$DEPLOYMENT_SPEC_JSON";
 
+.PHONY: deploy-delegate
+deploy-delegate:
+	echo "deploy-delegate"
+
+.PHONY: list-executions
+list-executions:
+	echo "list-executions"
+
+.PHONY: get-execution
+get-execution:
+	echo "get-execution"
+
+.PHONY: tail-execution-logs
+tail-execution-logs:
+	echo "arn:aws:states:us-east-1:174822970548:execution:ActivityWorkflowExecutor:299168b8-57f3-440c-b10f-6e8cba50ffd6"
+	echo "which log group? TopsailLogGroup"
+	ehco "which log stream? 299168b8-57f3-440c-b10f-6e8cba50ffd6"

@@ -17,12 +17,6 @@ use Getopt::Long;
 use Data::UUID;
 Getopt::Long::Configure("pass_through");
 
-# init logger
-use Log::Log4perl qw(get_logger);
-Log::Log4perl->init("log4perl.cfg");
-my $logger = get_logger("Foo");
-$logger->debug("Hello from Workflow.pm");
-
 use Exporter 'import';
 our @EXPORT_OK = qw(execute_workflow);
 
@@ -204,7 +198,7 @@ sub handle {
         # say "script unique id: $dir_path";
         my $script_unique_id = $dir_path;
 
-        say "starting execution of $step_name with id $script_unique_id";
+        say "START $script_unique_id:$step_name";
 
         my $script_exit_code;
         if(defined $ENV{LOG_SCRIPTS_TO_FILE}) {
@@ -225,7 +219,7 @@ sub handle {
                     }
                 };
 
-            say "finishing execution of $step_name with id $script_unique_id";
+            say "END $script_unique_id:$step_name";
             # how to catch errors?
             # $script_exit_code = system("$^X $script_filename");
             $script_exit_code = 0;
@@ -264,11 +258,11 @@ sub handle {
 
         if($overall_state_of_the_workflow eq 'NORMAL') {
             if(defined $deployment_spec->{States}->{$step_name}->{Next}) {
-                say "found next value $deployment_spec->{States}->{$step_name}->{Next}";
+                say "NEXT $step_name => $deployment_spec->{States}->{$step_name}->{Next}";
                 $step_name = $deployment_spec->{States}->{$step_name}->{Next};
 
             } elsif(defined $deployment_spec->{States}->{$step_name}->{End}) {
-                say "last step completed. exiting now";
+                say "END EXECUTION";
                 last;
             }
         } elsif($overall_state_of_the_workflow eq 'FAILURE') {

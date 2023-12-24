@@ -48,7 +48,32 @@ log4perl.appender.Screen.layout=Log::Log4perl::Layout::PatternLayout
 log4perl.appender.Screen.layout.ConversionPattern=[%r] %F %L %c - %m%n
 EOT
 
+# create a systemd job
+# it needs to restart every time it exists
+cat >/etc/systemd/system/your-service.service <<'EOD'
+[Unit]
+Description=topsail
 
+[Service]
+Environment="HOST_TEMPDIR=/root/tmp"
+Environment="AWSLOGS_GROUP=TopsailLogGroup"
+Environment="AWSLOGS_STREAM=bob1"
+Environment="AWS_REGION=us-east-1"
+Environment="ACTIVITY_ARN=arn:aws:states:us-east-1:904474103895:activity:basic-activity"
+User=root
+WorkingDirectory=/root
+ExecStart=/bin/bash -c '/usr/bin/docker run --rm --init -v "${HOST_TEMPDIR}:${HOST_TEMPDIR}" -v /var/run/docker.sock:/var/run/docker.sock -v /etc/docker:/etc/docker --env HOST_TEMPDIR="${HOST_TEMPDIR}" --log-driver=awslogs --log-opt awslogs-region="${AWS_REGION} --log-opt awslogs-group="${AWSLOGS_GROUP}" --log-opt awslogs-stream="${AWSLOGS_STREAM}" -i rttomlinson/topsail process_activity --activity-arn "${ACTIVITY_ARN}'
+
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
+EOD
+
+systemctl daemon-reload
+systemctl start your-service.service
+systemctl enable example.service
 
 
 echo "end userdata"

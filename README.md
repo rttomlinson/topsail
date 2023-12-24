@@ -87,6 +87,9 @@ Install any missing modules when that fails
 
 perl -d Workflow.pm --deployment-spec-json="$(jq '.deployment_spec' /tmp/big.json | jq -s '.[0]')" --context deploy
 
+
+make put-activity contexts='["deploy"]' YAML_MANIFEST_SPEC_INPUT_FILENAME=service_manifests/local_service_manifest.yaml
+
 # tooling
 
 * specification

@@ -17,14 +17,10 @@ Getopt::Long::Configure("pass_through");
 
 use Topsail::Workflow;
 
-# init logger
-use Log::Log4perl qw(get_logger);
-Log::Log4perl->init("log4perl.cfg");
-my $logger = get_logger("Foo");
-$logger->debug("Hello from Workflow.pm");
+
 our @EXPORT_OK = qw(workflow);
 # Conditional
-my (@deployment_contexts, $input_file, $output_file, $deployment_spec_json);
+my (@deployment_contexts, $deployment_spec_json, $execution_id);
 
 # Conditional
 
@@ -36,9 +32,8 @@ my (@deployment_contexts, $input_file, $output_file, $deployment_spec_json);
 
 GetOptions(
   'context=s' => \@deployment_contexts,
-#   'input-file=s' => \$input_file, # deployment_spec_json
-  'deployment-spec-json=s' => \$deployment_spec_json, # deployment_spec_json
-#   'output-file=s' => \$output_file,
+  'deployment-spec-json=s' => \$deployment_spec_json,
+  'execution-id=s' => \$execution_id,
 );
 
 # should need to validate here

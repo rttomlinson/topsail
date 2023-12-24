@@ -18,17 +18,20 @@ Resources:
       DefinitionString:
         Fn::Sub: |
           {
-              "StartAt": "Step Functions Run Activity",
-              "States": {
-                  "Step Functions Run Activity": {
-                    "Type": "Task",
-                    "Resource": "${ActivityArn}",
-                    "HeartbeatSeconds": 60,
-                    "End": true 
-                  }
+            "StartAt": "Step Functions Run Activity",
+            "States": {
+              "Step Functions Run Activity": {
+                "Type": "Task",
+                "Resource": "${ActivityArn}",
+                "Parameters": {
+                  "input.$": "$",
+                  "execution_id.$": "$$.Execution.Id"
+                },
+                "HeartbeatSeconds": 60,
+                "End": true
               }
+            }
           }
-
 # End state machine that publishes to Lambda and sends an email with the link for approval
 Outputs:
   LambdaStateMachine:

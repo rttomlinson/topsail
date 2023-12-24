@@ -19,15 +19,6 @@ Getopt::Long::Configure("pass_through");
 
 my ($activity_arn,);
 
-
-# init logger
-use Log::Log4perl qw(get_logger);
-Log::Log4perl->init("log4perl.cfg");
-my $logger = get_logger("Foo");
-$logger->debug("Hello from Process activity");
-
-# Conditional
-
 GetOptions(
   'activity-arn=s' => \$activity_arn,
 )
@@ -47,7 +38,10 @@ my $aws = AWS::CLIWrapper->new(
 
 my $task_token;
 my $task_input_json;
+
 my $task_input;
+my $task_payload;
+my $task_execution_id;
 
 while(1) {
     # This API action isn’t logged in CloudTrail.
@@ -59,13 +53,19 @@ while(1) {
         },
         timeout => 65, # https://docs.aws.amazon.com/step-functions/latest/dg/troubleshooting-activities.html
     );
+
+    # ideally we could get the step function execution id that generated the activity
     
     if ($res) {
-        say "got activity";
+        say "got activity from $activity_arn";
         $task_token = $res->{taskToken};
         say "got task token $task_token";
         $task_input_json = $res->{input};
         $task_input = decode_json $task_input_json;
+
+        $task_payload = $task_input->{input};
+        $task_execution_id = $task_input->{execution_id};
+
         last;
 
     } else {
@@ -73,15 +73,14 @@ while(1) {
         warn $AWS::CLIWrapper::Error->{Message};
     }
 }
-
 # start heartbeat cron
 say "starting heartbeat";
 
 # should need to validate here
-my $deployment_spec = $task_input->{deployment_spec};
+my $deployment_spec = $task_payload->{deployment_spec};
 my $deployment_spec_json = encode_json($deployment_spec);
 # can be undefined or empty
-my $contexts = $task_input->{contexts}; 
+my $contexts = $task_payload->{contexts}; 
 $contexts //= ();
 
 my $pid = fork();
@@ -134,8 +133,11 @@ my @steps_performed;
 my $steps_performed = \@steps_performed;
 
 
-say "starting workflow execution";
+say "starting process activity";
 # unique execution flow here
+# hopefully we can get this value so we can emit it for another process to pick up to parse logs
+my $execution_id = $task_input->{execution_id};
+$execution_id //= 'undefined';
 $steps_performed = Topsail::Workflow::execute_workflow(starting_contexts => $deployment_contexts, original_deployment_spec => $original_deployment_spec);
 
 say "finish running the script. yay";

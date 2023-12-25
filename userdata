@@ -50,7 +50,7 @@ yum -y install amazon-cloudwatch-agent
 
 # create a systemd job
 # it needs to restart every time it exists
-cat >/etc/systemd/system/your-service.service <<'EOD'
+cat >/etc/systemd/system/topsail.service <<'EOD'
 [Unit]
 Description=topsail
 
@@ -60,7 +60,7 @@ Environment="AWSLOGS_GROUP=TopsailLogGroup"
 Environment="WORKER_ID=bob1"
 Environment="AWSLOGS_STREAM=bob1"
 Environment="AWS_REGION=us-east-1"
-Environment="ACTIVITY_ARN=arn:aws:states:us-east-1:128662436174:activity:basic-activity"
+Environment="ACTIVITY_ARN=arn:aws:states:us-east-1:428589721254:activity:basic-activity"
 User=root
 WorkingDirectory=/root
 ExecStart=/bin/bash -c '/usr/bin/docker run --pull=always --init --rm -v "${HOST_TEMPDIR}:${HOST_TEMPDIR}" -v /var/run/docker.sock:/var/run/docker.sock -v /etc/docker:/etc/docker --env HOST_TEMPDIR="${HOST_TEMPDIR}" --env WORKER_ID="${WORKER_ID}" --log-driver=awslogs --log-opt awslogs-region="${AWS_REGION}" --log-opt awslogs-group="${AWSLOGS_GROUP}" --log-opt awslogs-stream="${AWSLOGS_STREAM}" -i rttomlinson/topsail process_activity --activity-arn "${ACTIVITY_ARN}"'
@@ -72,8 +72,8 @@ WantedBy=multi-user.target
 EOD
 
 systemctl daemon-reload
-systemctl start your-service.service
-systemctl enable example.service
+systemctl start topsail.service
+systemctl enable topsail.service
 
 
 echo "end userdata"

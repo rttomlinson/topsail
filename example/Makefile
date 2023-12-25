@@ -742,7 +742,7 @@ put-activity: local_step_service_manifest # simp_step_service_manifest
 	# call the start step function with the input
 	echo starting-step-function
 	DEPLOYMENT_SPEC_JSON=$$(jq -n --argjson data "$$contexts" --argfile dspec /tmp/big.json '{"contexts": $$data, "deployment_spec": $$dspec.deployment_spec}'); \
-	STATE_MACHINE_ARN="arn:aws:states:us-east-1:128662436174:stateMachine:ActivityWorkflowExecutor"; \
+	STATE_MACHINE_ARN="arn:aws:states:us-east-1:428589721254:stateMachine:ActivityWorkflowExecutor"; \
 	aws stepfunctions start-execution --state-machine-arn $$STATE_MACHINE_ARN --input "$$DEPLOYMENT_SPEC_JSON";
 
 .PHONY: deploy-delegate
@@ -773,5 +773,6 @@ get-worker-by-execution-id:
 	# basically we want to loop here
 	# check execution history for a finish time, else increment however long the timeout is to get more logs
 
+	# wait for user to exit viewing the logs
 	# start-query?
 	# get-log-events?

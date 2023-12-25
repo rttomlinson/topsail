@@ -742,7 +742,7 @@ put-activity: local_step_service_manifest # simp_step_service_manifest
 	# call the start step function with the input
 	echo starting-step-function
 	DEPLOYMENT_SPEC_JSON=$$(jq -n --argjson data "$$contexts" --argfile dspec /tmp/big.json '{"contexts": $$data, "deployment_spec": $$dspec.deployment_spec}'); \
-	STATE_MACHINE_ARN="arn:aws:states:us-east-1:904474103895:stateMachine:ActivityWorkflowExecutor"; \
+	STATE_MACHINE_ARN="arn:aws:states:us-east-1:128662436174:stateMachine:ActivityWorkflowExecutor"; \
 	aws stepfunctions start-execution --state-machine-arn $$STATE_MACHINE_ARN --input "$$DEPLOYMENT_SPEC_JSON";
 
 .PHONY: deploy-delegate
@@ -762,3 +762,16 @@ tail-execution-logs:
 	echo "arn:aws:states:us-east-1:174822970548:execution:ActivityWorkflowExecutor:299168b8-57f3-440c-b10f-6e8cba50ffd6"
 	echo "which log group? TopsailLogGroup"
 	ehco "which log stream? 299168b8-57f3-440c-b10f-6e8cba50ffd6"
+
+.PHONY: get-worker-by-execution-id
+get-worker-by-execution-id:
+	WORKER_ID=$(aws stepfunctions get-execution-history --execution-arn "${execution-id}" --output json | jq -r '.events[] | select(.type | contains("ActivityStarted")) | .activityStartedEventDetails.workerName'); \
+	WORKER_START_TIME=$(aws stepfunctions get-execution-history --execution-arn "${execution-id}" --output json | jq -r '.events[] | select(.type | contains("ActivityStarted")) | .timestamp'); \
+	WORKER_START_TIME_EPOCH=$(date -d "${WORKER_START_TIME}" +'%s%3N'); \
+	aws logs filter-log-events --log-group-name TopsailLogGroup --log-stream-names bob1 --start-time "${WORKER_START_TIME_EPOCH}" | jq
+
+	# basically we want to loop here
+	# check execution history for a finish time, else increment however long the timeout is to get more logs
+
+	# start-query?
+	# get-log-events?

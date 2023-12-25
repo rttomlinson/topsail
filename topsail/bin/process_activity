@@ -42,14 +42,14 @@ my $task_input_json;
 my $task_input;
 my $task_payload;
 my $task_execution_id;
-
+my $worker_id = $ENV{WORKER_ID} // 'anonymous';
 while(1) {
     # This API action isn’t logged in CloudTrail.
     say "Polling for next activity: $activity_arn";
     my $res = $aws->stepfunctions(
         'get-activity-task' => {
             "activity-arn" => $activity_arn,
-            "worker-name" => "trashcan-mansadfads"
+            "worker-name" => $worker_id
         },
         timeout => 65, # https://docs.aws.amazon.com/step-functions/latest/dg/troubleshooting-activities.html
     );
@@ -64,7 +64,7 @@ while(1) {
         $task_input = decode_json $task_input_json;
 
         $task_payload = $task_input->{input};
-        $task_execution_id = $task_input->{execution_id};
+        $task_execution_id = $task_input->{execution_id}; # used in-case you want to run on your local machine
 
         last;
 
@@ -100,11 +100,13 @@ if (!$pid) {  # child
             say "lub-bub";
             say "send heartbeat success: $heartbeat_res";    
         } else {
+            # Need a way to kill the whole process
             warn $AWS::CLIWrapper::Error->{Code};
             warn $AWS::CLIWrapper::Error->{Message};
         }
         sleep 15;        
-    }        
+    }
+    die; # not make sure it never escapes     
 }
 
 my $kid = waitpid($pid, WNOHANG);
@@ -134,11 +136,7 @@ my $steps_performed = \@steps_performed;
 
 
 say "starting process activity";
-# unique execution flow here
-# hopefully we can get this value so we can emit it for another process to pick up to parse logs
-my $execution_id = $task_input->{execution_id};
-$execution_id //= 'undefined';
-$steps_performed = Topsail::Workflow::execute_workflow(starting_contexts => $deployment_contexts, original_deployment_spec => $original_deployment_spec);
+$steps_performed = Topsail::Workflow::execute_workflow(starting_contexts => $deployment_contexts, original_deployment_spec => $original_deployment_spec, execution_id => $task_execution_id);
 
 say "finish running the script. yay";
 
@@ -147,7 +145,7 @@ say $task_input;
 
 # process the workflow spec
 
-my $task_output;
+my $task_output = $worker_id;
 
 $task_output //= '{}';
 

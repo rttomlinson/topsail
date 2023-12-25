@@ -17,19 +17,29 @@ use Getopt::Long;
 use Data::UUID;
 Getopt::Long::Configure("pass_through");
 
-use Exporter 'import';
-our @EXPORT_OK = qw(execute_workflow);
+# use Exporter 'import';
+# our @EXPORT_OK = qw(execute_workflow);
+
+sub make_logger {
+    my ($execution_id) = @_;
+    if(defined $execution_id){
+        return sub { say "$execution_id: @_" };
+    } else {
+        return sub { say @_ };
+    }
+}
 
 sub execute_workflow {
     my %params = @_;
-    my ($contexts, $original_deployment_spec) = @params{qw(starting_contexts original_deployment_spec)};
+    my ($contexts, $original_deployment_spec, $execution_id,) = @params{qw(starting_contexts original_deployment_spec execution_id)};
     $contexts //= ();
     my %payload = ();
     my $deployment_contexts = $contexts;
     my $overall_state_of_the_system = '';
+    my $logger = make_logger($execution_id);
+    $logger->("starting workflow execution");
 
     my @steps_performed = ();
-    say "starting workflow execution";
     while(1) {
         #decider
         my $deployment_spec = collapser($deployment_contexts, $original_deployment_spec);
@@ -44,26 +54,26 @@ sub execute_workflow {
                 $payload{$pipeline_variable_key} = encode_json $deployment_spec->{variables}->{$pipeline_variable_key};
             }
         }
-        say "executing deployment spec with following contexts: @{$deployment_contexts}";
+        $logger->("executing deployment spec with following contexts: @{$deployment_contexts}");
         # unique execution flow here
-        my ($new_overall_state_of_the_system, $new_next_deployment_contexts) = handle(\%payload, $deployment_spec);
+        my ($new_overall_state_of_the_system, $new_next_deployment_contexts) = handle(\%payload, $deployment_spec, $logger);
 
         $overall_state_of_the_system = $new_overall_state_of_the_system if defined $new_overall_state_of_the_system;
 
         if($overall_state_of_the_system eq 'CHANGE') {
             confess "System detected a change, but no new workflow was provided. Aborting the workflow" unless defined $new_next_deployment_contexts;
             $deployment_contexts = $new_next_deployment_contexts;
-            say "one of the steps failed";
-            say "we should show you the logs";
+            $logger->("one of the steps failed");
+            $logger->("we should show you the logs");
         } elsif($overall_state_of_the_system eq 'END') {
-            say "we done";
+            $logger->("we done");
             last;
         } else {
-            say "unknown state tbh: $overall_state_of_the_system";
+            $logger->("unknown state tbh: $overall_state_of_the_system");
             last;
         }
     }
-    say "ending workflow execution";
+    $logger->("ending workflow execution");
     # process the workflow spec
 
     my $task_output;
@@ -78,7 +88,7 @@ sub execute_workflow {
 sub handle {
 
     # Note: step name is confusing because there is mast step name and deployment step name
-    my ($pipeline_variables, $deployment_spec) = @_;
+    my ($pipeline_variables, $deployment_spec, $logger) = @_;
 
     my $ug    = Data::UUID->new;
     my $uuid = $ug->create();
@@ -97,7 +107,6 @@ sub handle {
 
     system("mkdir -p $workflow_temporary_directory_path") == 0
         or die "system mkdir failed: $?";
-    # say "created tmp dir for script invocation at $workflow_temporary_directory_path";
     my $overall_state_of_the_workflow = "NORMAL";
     # We just need the deployment manifest - The fact of keeping them together is just a technicality
     # So we need a "get service manifest" from label or tag or url or directly from file
@@ -176,7 +185,6 @@ sub handle {
         # Create the tmp dir within the fs
         system("mkdir -p $unique_tmpdir_for_single_step") == 0
             or die "system mkdir failed: $?";
-        # say "created tmp dir for script invocation at $unique_tmpdir_for_single_step";
         # Create logs file
         # system("mkdir -p $unique_tmpdir_for_single_step/logs") == 0
         #     or die "system mkdir failed: $?";
@@ -194,11 +202,9 @@ sub handle {
 
         # my @p_args = ("help",);
         # How to handle specific logs to this. Each time
-        # say "execution unique id: $execution_unique_id";
-        # say "script unique id: $dir_path";
         my $script_unique_id = $dir_path;
 
-        say "START $script_unique_id:$step_name";
+        $logger->("START $script_unique_id:$step_name");
 
         my $script_exit_code;
         if(defined $ENV{LOG_SCRIPTS_TO_FILE}) {
@@ -215,11 +221,11 @@ sub handle {
             run \@cmd, '>', sub { 
                     my @text = split "\n", "$_[0]";
                     for(@text) {
-                        say "$script_unique_id: $_" unless $_ eq '';
+                        $logger->("$script_unique_id: $_") unless $_ eq '';
                     }
                 };
 
-            say "END $script_unique_id:$step_name";
+            $logger->("END $script_unique_id:$step_name");
             # how to catch errors?
             # $script_exit_code = system("$^X $script_filename");
             $script_exit_code = 0;
@@ -251,31 +257,31 @@ sub handle {
             }
             closedir(DIR);
         } else {
-            say "system call failed with exit code: $script_exit_code";
+            $logger->("system call failed with exit code: $script_exit_code");
             $overall_state_of_the_workflow = "FAILURE";
             # an error occurred during the script execution and we need to decide what to do next
         }
 
         if($overall_state_of_the_workflow eq 'NORMAL') {
             if(defined $deployment_spec->{States}->{$step_name}->{Next}) {
-                say "NEXT $step_name => $deployment_spec->{States}->{$step_name}->{Next}";
+                $logger->("NEXT $step_name => $deployment_spec->{States}->{$step_name}->{Next}");
                 $step_name = $deployment_spec->{States}->{$step_name}->{Next};
 
             } elsif(defined $deployment_spec->{States}->{$step_name}->{End}) {
-                say "END EXECUTION";
+                $logger->("END EXECUTION");
                 last;
             }
         } elsif($overall_state_of_the_workflow eq 'FAILURE') {
             if(defined $deployment_spec->{States}->{$step_name}->{OnErrorContext}) {
-                say "found next context(s) values: " . join(" ", @{$deployment_spec->{States}->{$step_name}->{OnErrorContext}});
+                $logger->("found next context(s) values: " . join(" ", @{$deployment_spec->{States}->{$step_name}->{OnErrorContext}}));
                 return "CHANGE", $deployment_spec->{States}->{$step_name}->{OnErrorContext};
 
             } else {
-                say "No errorContext found steps found";
+                $logger->("No errorContext found steps found");
                 return "CHANGE";
             }
         } else {
-            say "unknown state tbh: $overall_state_of_the_workflow";
+            $logger->("unknown state tbh: $overall_state_of_the_workflow");
             last;
         }
     }

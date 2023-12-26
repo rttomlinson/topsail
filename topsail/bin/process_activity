@@ -140,9 +140,6 @@ $steps_performed = Topsail::Workflow::execute_workflow(starting_contexts => $dep
 
 say "finish running the script. yay";
 
-say $task_token;
-say $task_input;
-
 # process the workflow spec
 
 my %task_output_payload = ("worker_id" => $worker_id);

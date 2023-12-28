@@ -152,8 +152,10 @@ sub handle {
         for my $arg (@{$arguments_as_env_vars}) {
             my $cloud_spec_json_arg;
 
-            if($arg->{value} =~ /^\$\{([a-z\.A-Z_]+)\}?/){
+            if($arg->{value} =~ /^\$([a-z\.A-Z_]+)?/){
                     # we need to look up in state following pattern of characters. periods. and underscores. no restriction on double periods so we will fail
+                    # a $ prefixing the start is a special character which tells us this is from the state of the application.
+                    # We are not doing any other checking
                     my @lookup_keys = split(/\./, $1);
 
                     my $item = shift(@lookup_keys);

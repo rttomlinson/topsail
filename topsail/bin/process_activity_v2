@@ -12,6 +12,9 @@ use JSON::PP;
 use POSIX ":sys_wait_h";
 use Getopt::Long;
 use Data::UUID;
+use LWP::UserAgent ();
+use HTTP::Headers;
+
 
 use Topsail::Workflow;
 Getopt::Long::Configure("pass_through");
@@ -76,8 +79,61 @@ while(1) {
 say "starting heartbeat";
 
 # should need to validate here
-my $deployment_spec = $task_payload->{deployment_spec};
-my $deployment_spec_json = encode_json($deployment_spec);
+my $image = $task_payload->{image};
+    confess "image missing from payload" unless defined $image;
+my ($repo, $tag) = split(/:/, $image);
+    confess "repo and tags must be valid. only supports tag image label atm" unless ((defined $repo) and (defined $tag));
+
+my $token;
+my $digest;
+# my $cloud_spec = $labels->{cloud_spec};
+# my $service_manifest = $labels->{service_manifest};
+
+my $ua = LWP::UserAgent->new(timeout => 10);
+$ua->env_proxy;
+my $h = HTTP::Headers->new(
+      Accept         => 'application/vnd.docker.distribution.manifest.v2+json',
+    #   Authorization => "Authorization: Bearer ${token}"
+    );
+$ua->default_headers( $h );
+my $response = $ua->get("https://auth.docker.io/token?service=registry.docker.io&scope=repository:${repo}:pull");
+ 
+if ($response->is_success) {
+    $token = decode_json($response->decoded_content)->{token};
+}
+else {
+    die $response->status_line;
+}
+
+my $dh = HTTP::Headers->new(
+      Accept         => 'application/vnd.docker.distribution.manifest.v2+json',
+      Authorization => "Bearer ${token}"
+    );
+$ua->default_headers( $dh );
+my $digest_response = $ua->get("https://registry-1.docker.io/v2/${repo}/manifests/${tag}");
+
+if ($digest_response->is_success) {
+    $digest = decode_json($digest_response->decoded_content)->{config}->{digest};
+}
+else {
+    die $digest_response->status_line;
+}
+
+my $labels;
+my $labels_response = $ua->get("https://registry-1.docker.io/v2/${repo}/blobs/${digest}");
+
+if ($labels_response->is_success) {
+    $labels = decode_json($labels_response->decoded_content)->{config}->{Labels};
+}
+else {
+    die $labels_response->status_line;
+}
+
+my $cloud_spec = $labels->{cloud_spec};
+my $service_manifest = $labels->{service_manifest};
+
+my $deployment_spec = decode_json($service_manifest)->{deployment_spec};
+
 # can be undefined or empty
 my $contexts = $task_payload->{contexts}; 
 $contexts //= ();
@@ -114,13 +170,9 @@ say "pid of child is $pid";
 # kill heartbeat cron
 
 # choice?
-my $service_manifest;
+# my $service_manifest;
 my $original_deployment_spec;
-if(defined $deployment_spec_json) {
-    $original_deployment_spec = decode_json $deployment_spec_json;
-} elsif(defined $deployment_spec) {
-    $original_deployment_spec = $deployment_spec;
-}
+$original_deployment_spec = $deployment_spec;
 
 # Is it okay to change the deployment context for each step? Probably but we should want to record it somewhere whats happening and _how_ we got to the deployment spec we're using
 
@@ -138,6 +190,9 @@ say "starting process activity";
 $steps_performed = Topsail::Workflow::execute_workflow(starting_contexts => $deployment_contexts, original_deployment_spec => $original_deployment_spec, execution_id => $task_execution_id);
 
 say "finish running the script. yay";
+
+say $task_token;
+say $task_input;
 
 # process the workflow spec
 

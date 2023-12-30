@@ -552,14 +552,16 @@ init: bucket
 	echo "DefaultStack has reached STACK_COMPLETE or UPDATE_COMPLETE status"
 
 	ECR_LOGIN_COMMAND=$$(aws cloudformation describe-stacks --stack-name DefaultStack | jq -r '.Stacks[0].Outputs[] | select(.OutputKey=="PrivateECRLoginCommand") | .OutputValue'); \
-	echo "$$ECR_LOGIN_COMMAND";
+	echo "$$ECR_LOGIN_COMMAND"; \
+	eval "$$ECR_LOGIN_COMMAND";
 
 	ECR_PULLTHROUGH_COMMAND=$$(aws cloudformation describe-stacks --stack-name DefaultStack | jq -r '.Stacks[0].Outputs[] | select(.OutputKey=="PrivateECRPullthrough") | .OutputValue'); \
-	echo "docker pull $$ECR_PULLTHROUGH_COMMAND"
+	echo "docker pull $$ECR_PULLTHROUGH_COMMAND"; \
+	eval "docker pull $$ECR_PULLTHROUGH_COMMAND";
 
 EMAIL?="rtomlinson@foo.com"
 .PHONY: workflows
-workflows: bucket
+workflows: init bucket
 
 	# Deploy MastLambda
 	command_output=$$(aws cloudformation create-stack --stack-name MastLambda --template-url https://${TEMPLATES_BUCKET_NAME}.s3.amazonaws.com/MAST_LAMBDA.yaml --capabilities CAPABILITY_NAMED_IAM 2>&1); \

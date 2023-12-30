@@ -14,7 +14,7 @@ RUN apk add bash
 # List all dependencies here, including testing. Do not add them to Makefile.PL
 RUN cpanm -v --no-wget Test::More Test::Output Digest::SHA Pod::Usage \
     File::Slurp Test::Exception Test::LectroTest Moo strictures Data::UUID DateTime::Format::ISO8601 \
-    AWS::CLIWrapper~1.27 Net::DNS HTTP::Tinyish UUID::Random Clone Log::Log4perl Log::Dispatch::Screen LWP::Simple IPC::Run
+    AWS::CLIWrapper~1.27 Net::DNS HTTP::Tinyish UUID::Random Clone Log::Log4perl Log::Dispatch::Screen LWP::Simple LWP::UserAgent HTTP::Headers IPC::Run
 
 # We want AWS CLI calls to *not* fail and keep retrying until a timeout expires.
 # 255 attempts with exponential backoff up to 20 seconds will give us over an hour

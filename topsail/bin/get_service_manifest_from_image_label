@@ -1,0 +1,76 @@
+#!/usr/bin/env perl
+
+$| = 1;
+use v5.030;
+use warnings;
+use strictures 2;
+no warnings 'uninitialized';
+use Errno;
+use Carp 'confess';
+use JSON::PP;
+use LWP::UserAgent ();
+use HTTP::Headers;
+
+
+# my $repo = "rtomlinsontesting/ecs-demo-simple-expressjs-app";
+# my $tag = "dev-88ae7749dea5d65fa4c0162ec86819f3abd5ff18";
+# handle sha of image too. doing pattern matching
+my $image = "rtomlinsontesting/ecs-demo-simple-expressjs-app:dev-88ae7749dea5d65fa4c0162ec86819f3abd5ff18";
+my ($repo, $tag) = split(/:/, $image);
+
+say $repo;
+say $tag;
+
+my $token;
+my $digest;
+# my $cloud_spec = $labels->{cloud_spec};
+# my $service_manifest = $labels->{service_manifest};
+
+my $ua = LWP::UserAgent->new(timeout => 10);
+$ua->env_proxy;
+my $h = HTTP::Headers->new(
+      Accept         => 'application/vnd.docker.distribution.manifest.v2+json',
+    #   Authorization => "Authorization: Bearer ${token}"
+    );
+$ua->default_headers( $h );
+my $response = $ua->get("https://auth.docker.io/token?service=registry.docker.io&scope=repository:${repo}:pull");
+ 
+if ($response->is_success) {
+    $token = decode_json($response->decoded_content)->{token};
+}
+else {
+    die $response->status_line;
+}
+
+my $dh = HTTP::Headers->new(
+      Accept         => 'application/vnd.docker.distribution.manifest.v2+json',
+      Authorization => "Bearer ${token}"
+    );
+$ua->default_headers( $dh );
+my $digest_response = $ua->get("https://registry-1.docker.io/v2/${repo}/manifests/${tag}");
+
+if ($digest_response->is_success) {
+    $digest = decode_json($digest_response->decoded_content)->{config}->{digest};
+}
+else {
+    die $digest_response->status_line;
+}
+
+my $labels;
+my $labels_response = $ua->get("https://registry-1.docker.io/v2/${repo}/blobs/${digest}");
+
+if ($labels_response->is_success) {
+    $labels = decode_json($labels_response->decoded_content)->{config}->{Labels};
+}
+else {
+    die $labels_response->status_line;
+}
+
+my $cloud_spec = $labels->{cloud_spec};
+my $service_manifest = $labels->{service_manifest};
+my $deployment_spec = decode_json($service_manifest)->{deployment_spec};
+use Data::Dumper;
+say Dumper($deployment_spec);
+
+
+1;

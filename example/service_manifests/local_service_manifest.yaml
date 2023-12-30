@@ -439,13 +439,10 @@ deployment_spec:
           my $contexts = decode_json $ENV{context};
 
           my $TMPDIR = $ENV{TMPDIR};
-          # my $OUTPUT_FILE = $ENV{OUTPUT_FILE};
-          # my $HOST_TEMPORARY_DIRECTORY = $ENV{HOST_TEMPORARY_DIRECTORY};
           my $cloud_spec_json = $ENV{cloud_spec_json};
           my $HOME = $ENV{HOME};
 
           # docker run command
-          # my $func_to_execute = "echo hellosthere";
 
           say "omg purl";
           my $func_to_execute = "docker run --rm -i --init --mount type=bind,source=" . "\"${TMPDIR}\"" . ",target=$TMPDIR" . " rttomlinson/mast " . "validate_cloud_spec ";
@@ -453,7 +450,6 @@ deployment_spec:
             $func_to_execute = $func_to_execute . "--context ${context} ";
           }
 
-          # $func_to_execute = $func_to_execute . "--output-file \"${TMPDIR}/my-output-file\" ";
           $func_to_execute = $func_to_execute . "--cloud-spec-json '${cloud_spec_json}'";
 
           say $func_to_execute;
@@ -467,7 +463,7 @@ deployment_spec:
           - name: context
             value: '["prestaging", "standby"]'
           - name: cloud_spec_json
-            value: ${workflow.cloud_spec_json}
+            value: $workflow.cloud_spec_json
         OnErrorContext: ["abort"]
       Create ECS Task Definition:
         Type: "Task"
@@ -517,7 +513,7 @@ deployment_spec:
           - name: context2
             value: "standby"
           - name: cloud_spec_json
-            value: ${workflow.cloud_spec_json} # ${workflow.standby_cloud_spec.cloud_spec_json}
+            value: $workflow.cloud_spec_json # $workflow.standby_cloud_spec.cloud_spec_json
         OnErrorContext: ["abort"]
       Python Create ECS Task Definition:
         Type: "Task"
@@ -538,9 +534,9 @@ deployment_spec:
         timeoutMillis: 30000
         variables:
           - name: context
-            value: ${workflow.context}
+            value: $workflow.context
           - name: cloud_spec_json
-            value: ${workflow.cloud_spec_json} # ${workflow.standby_cloud_spec.cloud_spec_json}
+            value: $workflow.cloud_spec_json # $workflow.standby_cloud_spec.cloud_spec_json
         End: true
   abort:
     RoleArn: "arn:aws:iam::927027609069:role/default-step-function-lambda-role" # This is just a placeholder
